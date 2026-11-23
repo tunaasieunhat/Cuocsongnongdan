@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mẫu phong cách</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; background: #000; }
+  canvas { display: block; }
+  .top { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
+  .chip { padding: 8px 16px; border-radius: 999px; font-weight: 800; font-size: 18px; box-shadow: 0 3px 0 rgba(0,0,0,.15); }
+  .label { position: fixed; left: 16px; bottom: 16px; padding: 10px 16px; border-radius: 14px; font-weight: 800; font-size: 20px; }
+  .btns { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 12px; }
+  .btn { width: 78px; height: 78px; border-radius: 22px; display: grid; place-items: center; font-size: 34px; box-shadow: 0 5px 0 rgba(0,0,0,.18); }
+  .bubble { position: fixed; padding: 6px 10px; border-radius: 14px; font-size: 26px; background: #fff; box-shadow: 0 3px 0 rgba(0,0,0,.15); transform: translate(-50%, -100%); }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="chip" id="money">💰 120</div>
+  <div class="chip" id="day">📅 Ngày 3</div>
+  <div class="chip" id="time">🕗 08:30</div>
+</div>
+<div class="btns">
+  <div class="btn" id="b1">🌱</div>
+  <div class="btn" id="b2">🍜</div>
+</div>
+<div class="label" id="label"></div>
+<div class="bubble" id="bubble">🍲</div>
+<script type="module">
+import * as THREE from './vendor/three.module.min.js';
+import { PALETTES } from './js/config/palettes.js';
+import { Models } from './js/render/models.js';
+
+const key = new URLSearchParams(location.search).get('style') || 'nang';
+const P = PALETTES[key];
+const M = new Models(P);
+
+// Giao diện mẫu theo bảng màu
+const css = (c) => '#' + c.toString(16).padStart(6, '0');
+document.querySelectorAll('.chip').forEach((el) => { el.style.background = css(P.wall); el.style.color = css(P.woodDark); });
+document.querySelectorAll('.btn').forEach((el, i) => { el.style.background = css(i ? P.roof : P.grass); });
+const label = document.getElementById('label');
+label.textContent = P.name;
+label.style.background = css(P.accent);
+label.style.color = css(P.woodDark);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(P.sky);
+
+scene.add(new THREE.HemisphereLight(P.ambientSky, P.ambientGround, P.ambientIntensity));
+const sun = new THREE.DirectionalLight(P.sunColor, P.sunIntensity);
+sun.position.set(10, 18, 8);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 50 });
+sun.shadow.bias = -0.0005;
+scene.add(sun);
+
+// Đảo
+scene.add(M.island(26, 20));
+scene.add(M.path(2, 20, 0.5, 0));
+scene.add(M.path(26, 1.6, 0, 6.5));
+
+// Ruộng 3x2
+const crops = [['rau', 3], ['cachua', 3], ['lua', 3], ['rau', 1], ['cachua', 2], ['lua', 0]];
+crops.forEach(([t, s], i) => {
+  const plot = M.plot();
+  const x = -8.5 + (i % 3) * 2.2, z = -1.5 + Math.floor(i / 3) * 2.2;
+  plot.position.set(x, 0, z);
+  M.setPlotWet(plot, i === 4 || i === 5);
+  const c = M.crop(t, s);
+  plot.add(c);
+  scene.add(plot);
+});
+scene.add(M.fence(7, -6.3, -3.2));
+
+// Nông dân
+const farmer = M.farmer();
+farmer.position.set(-4.6, 0, 1.6);
+farmer.rotation.y = -0.9;
+scene.add(farmer);
+
+// Chuồng gà
+const coop = M.coop();
+coop.position.set(-8, 0, -6.2);
+scene.add(coop);
+[[-8.6, -5.4], [-7.3, -5.0]].forEach(([x, z], i) => {
+  const ch = M.chicken(x, z);
+  ch.rotation.y = i ? -0.8 : 0.6;
+  scene.add(ch);
+});
+scene.add(M.egg(-7.9, -4.9));
+
+// Nhà + chợ
+const house = M.house();
+house.position.set(-3.5, 0, -6.5);
+scene.add(house);
+const stall = M.marketStall();
+stall.position.set(-9.5, 0, 4.3);
+stall.rotation.y = 0.3;
+scene.add(stall);
+
+// Quán
+const rest = M.restaurant(3);
+rest.position.set(6.5, 0, -1);
+scene.add(rest);
+const t0 = rest.userData.tables[0];
+const cust = M.customer(0);
+cust.position.copy(t0.stool.position).add(rest.position);
+cust.position.y = 0.25;
+cust.rotation.y = -Math.PI / 2 - 0.3;
+cust.userData.parts.legL.rotation.x = cust.userData.parts.legR.rotation.x = -1.2;
+cust.position.y = 0.05;
+scene.add(cust);
+const cust2 = M.customer(1);
+cust2.position.set(rest.position.x + 3.4, 0, rest.position.z + 3.6);
+cust2.rotation.y = -2.4;
+scene.add(cust2);
+const plate = M.dish(0xffffff, P.tomato);
+plate.position.copy(rest.userData.tables[1].table.position).add(rest.position);
+plate.position.y = 1.08;
+scene.add(plate);
+
+// Trang trí
+scene.add(M.pond(-1, 3.6, 1.2));
+[[-11.5, -8], [11.5, -8], [11.8, 8.4], [-12, 0], [-0.5, -8.5]].forEach(([x, z], i) =>
+  scene.add(i % 2 ? M.treePine(x, z, 1.1) : M.treeRound(x, z, 1.1)));
+scene.add(M.bush(-11.5, 7.5), M.bush(10.8, 8.3, 0.8), M.bush(3, 2.3, 0.7));
+for (let i = 0; i < 14; i++) {
+  const x = -12 + ((i * 7.3) % 24), z = -9 + ((i * 5.1) % 18);
+  if (Math.abs(z - 6.5) < 1.2 || Math.abs(x - 0.5) < 1.3) continue;
+  scene.add(i % 2 ? M.flower(x, z, i) : M.grassTuft(x, z));
+}
+scene.add(M.rock(11, 0.5), M.rock(-1.8, -3.8, 0.8));
+
+// Camera isometric (orthographic)
+const aspect = innerWidth / innerHeight;
+const view = 11;
+const cam = new THREE.OrthographicCamera(-view * aspect, view * aspect, view, -view, 0.1, 200);
+cam.position.set(20, 20, 20);
+cam.lookAt(-0.5, -1, -0.5);
+cam.zoom = 1.3;
+cam.updateProjectionMatrix();
+
+renderer.render(scene, cam);
+
+// Đặt bong bóng gọi món trên đầu khách
+const p = cust.position.clone(); p.y += 2.0;
+p.project(cam);
+const bubble = document.getElementById('bubble');
+bubble.style.left = ((p.x + 1) / 2 * innerWidth) + 'px';
+bubble.style.top = ((1 - p.y) / 2 * innerHeight) + 'px';
+window.__ready = true;
+</script>
+</body>
+</html>
