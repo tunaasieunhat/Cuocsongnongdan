@@ -5,10 +5,14 @@ import { CROP_ORDER } from '../config/gameData.js';
 import { isRipe } from '../core/farm.js';
 
 export class Tutorial {
-  // ctx: { game, hud, world, focus(where), onFinish() }
-  constructor(ctx) {
+  // ctx: { game, hud, world, focus(where), onFinish(), anchors(point) }
+  // opts: { steps, key (tên trường trong state), reward, freezePatience }
+  constructor(ctx, opts = {}) {
     this.ctx = ctx;
-    this.steps = TUTORIAL_STEPS;
+    this.steps = opts.steps || TUTORIAL_STEPS;
+    this.key = opts.key || 'tutorial';
+    this.reward = opts.reward || TUTORIAL_REWARD;
+    this.freezePatience = !!opts.freezePatience;
     this.flags = {};
 
     this.card = document.createElement('div');
@@ -26,7 +30,7 @@ export class Tutorial {
   }
 
   get state() {
-    return this.ctx.game.state.tutorial;
+    return this.ctx.game.state[this.key];
   }
 
   get active() {
@@ -39,11 +43,12 @@ export class Tutorial {
 
   start(fromBeginning = false) {
     const s = this.ctx.game.state;
-    if (fromBeginning || !s.tutorial) s.tutorial = { step: 0, done: false, rewarded: s.tutorial?.rewarded || false };
-    if (s.tutorial.done) return;
+    const k = this.key;
+    if (fromBeginning || !s[k]) s[k] = { step: 0, done: false, rewarded: s[k]?.rewarded || false };
+    if (s[k].done) return;
     // Bắt đầu bằng tay không, để bước "chọn công cụ Xới" có ý nghĩa
     this.ctx.hud.tutorialActive = true;
-    if (s.tutorial.step === 0) this.ctx.hud.setTool('hand');
+    if (s[k].step === 0 && this.key === 'tutorial') this.ctx.hud.setTool('hand');
     this._enter();
   }
 
@@ -63,6 +68,7 @@ export class Tutorial {
     this._harvestAtStart = game.state.stats.harvested;
     game.clockFrozen = true;
     game.growBoost = step.boost || 1;
+    if (this.freezePatience) game.patienceFrozen = true;
     hud.tutorialActive = true;
     hud.tipEl.hidden = true;
     // Bước gieo mà hết sạch hạt: tặng 1 hạt rau để không bị kẹt
@@ -116,7 +122,7 @@ export class Tutorial {
     if (!ui) return;
     const [kind, id] = ui.split(':');
     const hud = this.ctx.hud;
-    const el = kind === 'tool' ? hud.toolBtns[id] : kind === 'side' ? hud.sideBtns[id] : null;
+    const el = kind === 'tool' ? hud.toolBtns[id] : kind === 'side' ? hud.sideBtns[id] : kind === 'prep' ? hud.prepBtn : null;
     if (el) el.classList.add('tut-focus');
   }
 
@@ -131,6 +137,15 @@ export class Tutorial {
     if (w === 'ripe') return s.plots.some((p) => isRipe(p));
     if (w === 'harvested') return s.stats.harvested > this._harvestAtStart;
     if (w === 'market') return !!this.flags.market;
+    const r = s.restaurant;
+    if (w === 'menuSet') return r.menuSet;
+    if (w === 'cookStarted') return r.stoves.some(Boolean) || r.counter.length > 0;
+    if (w === 'cooked') return r.counter.length > 0 || !!r.carry;
+    if (w === 'opened') return r.open;
+    if (w === 'seated') return r.customers.some((c) => c.state === 'waiting');
+    if (w === 'served') return r.customers.some((c) => c.state === 'eating') || !!this.flags.served;
+    if (w === 'dirtyAny') return r.dirty.some(Boolean);
+    if (w === 'cleaned') return !!this.flags.cleaned;
     return false;
   }
 
@@ -144,15 +159,17 @@ export class Tutorial {
   _finish(completed) {
     const { game, hud } = this.ctx;
     const s = game.state;
-    s.tutorial.done = true;
-    if (completed && !s.tutorial.rewarded) {
-      s.tutorial.rewarded = true;
-      s.money += TUTORIAL_REWARD.money;
-      Object.entries(TUTORIAL_REWARD.seeds).forEach(([id, n]) => (s.seeds[id] = (s.seeds[id] || 0) + n));
-      hud.toast(`🎁 Nhận quà: ${TUTORIAL_REWARD.money} xu và hạt giống!`);
+    const t = s[this.key];
+    t.done = true;
+    if (completed && !t.rewarded) {
+      t.rewarded = true;
+      s.money += this.reward.money;
+      Object.entries(this.reward.seeds).forEach(([id, n]) => (s.seeds[id] = (s.seeds[id] || 0) + n));
+      hud.toast(`🎁 Nhận quà: ${this.reward.money} xu${Object.keys(this.reward.seeds).length ? ' và hạt giống' : ''}!`);
     }
     game.clockFrozen = false;
     game.growBoost = 1;
+    game.patienceFrozen = false;
     hud.tutorialActive = false;
     this.card.hidden = true;
     this.hand.hidden = true;
@@ -177,9 +194,10 @@ export class Tutorial {
       case 'cell:ripe': return cell((p) => isRipe(p));
       case 'market':
       case 'coop':
+      case 'stove':
         return world.interactables.find((d) => d.type === point)?.anchor;
       default:
-        return null;
+        return this.ctx.anchors?.(point) || null;
     }
   }
 

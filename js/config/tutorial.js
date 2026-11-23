@@ -37,9 +37,39 @@ export const TUTORIAL_STEPS = [
   {
     id: 'done',
     title: 'Bạn đã sẵn sàng!',
-    text: 'Mỗi sáng đất khô lại, nhớ tưới nhé. Đến 17:00 sẽ tổng kết ngày. Quà khởi nghiệp: <b>💰 20 xu</b> và <b>🌾 2 hạt lúa</b>!',
+    text: 'Mỗi sáng đất khô lại, nhớ tưới nhé. 15:00 chuẩn bị thực đơn, 17:00 mở quán đón khách. Quà khởi nghiệp: <b>💰 20 xu</b> và <b>🌾 2 hạt lúa</b>!',
     wait: 'button',
     button: 'Chơi thôi!',
     focus: 'farm',
+  },
+];
+
+// ---------- Hướng dẫn phần quán (tự bắt đầu lúc 15:00 sau khi đã học phần ruộng) ----------
+export const TUTORIAL_QUAN_REWARD = { money: 30, seeds: {} };
+
+export const TUTORIAL_QUAN_STEPS = [
+  {
+    id: 'q-welcome',
+    title: 'Tới giờ mở quán rồi!',
+    text: 'Chiều nào cũng vậy: lên thực đơn, nấu sẵn vài món, rồi mở cửa đón khách. Mình chỉ bạn lần đầu nhé. Trong lúc học, đồng hồ tạm dừng và khách không sốt ruột.',
+    wait: 'button',
+    button: 'Đi thôi',
+    focus: 'restaurant',
+  },
+  { id: 'q-menu', text: 'Bấm nút <b>📋 Lên thực đơn</b> ở góc phải dưới, chọn món rồi bấm <b>Lưu thực đơn</b>.', wait: 'menuSet', ui: 'prep', focus: 'restaurant' },
+  { id: 'q-cook', text: 'Chạm vào <b>🔥 bếp</b> và chọn một món để nấu. Nguyên liệu lấy từ kho của bạn.', wait: 'cookStarted', point: 'stove', focus: 'restaurant' },
+  { id: 'q-wait', text: 'Đang nấu… Món nấu xong sẽ tự lên <b>quầy</b> bên cạnh bếp. Có thể nấu thêm món khác trong lúc chờ.', wait: 'cooked', point: 'stove', focus: 'restaurant' },
+  { id: 'q-open', text: 'Có món rồi! Bấm <b>🏮 Mở quán</b> để đón khách luôn (bình thường quán tự mở lúc 17:00).', wait: 'opened', ui: 'prep', focus: 'restaurant' },
+  { id: 'q-guest', text: 'Khách đang vào! Bong bóng trên đầu khách cho biết khách gọi món gì, kèm thanh kiên nhẫn.', wait: 'seated', focus: 'restaurant' },
+  { id: 'q-serve', text: 'Chạm vào <b>bàn của khách</b>: nông dân sẽ tự lấy đúng món trên quầy và bưng ra. (Chạm quầy nếu muốn tự chọn món để bưng.)', wait: 'served', point: 'table:waiting', focus: 'restaurant' },
+  { id: 'q-eat', text: 'Khách đang ăn 😋. Ăn xong khách trả tiền và <b>tip</b>: phục vụ càng nhanh, tip càng nhiều.', wait: 'dirtyAny', focus: 'restaurant' },
+  { id: 'q-clean', text: 'Chạm vào <b>bàn bẩn</b> để dọn. Bàn bẩn thì khách mới không ngồi được.', wait: 'cleaned', point: 'table:dirty', focus: 'restaurant' },
+  {
+    id: 'q-done',
+    title: 'Chủ quán xịn rồi!',
+    text: 'Khách hài lòng giúp quán lên cấp ⭐. Vào <b>📖 Sổ công thức</b> học món mới, <b>🔨 Nâng cấp</b> để thêm bàn, bếp, thuê người phục vụ và trang trí quán. Quà: <b>💰 30 xu</b>!',
+    wait: 'button',
+    button: 'Bắt đầu buôn bán!',
+    focus: 'restaurant',
   },
 ];

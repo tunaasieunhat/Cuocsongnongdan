@@ -1,8 +1,10 @@
-// Giao diện HTML phủ trên cảnh 3D. Chỉ đọc state để hiển thị và gọi callback khi người chơi bấm.
-import { CROPS, CROP_ORDER, ITEMS, TIME, TOOLS } from '../config/gameData.js';
+// Khung giao diện HTML phủ trên cảnh 3D: thanh trên, nút tròn, thanh công cụ, nhãn, thông báo, cửa sổ.
+// Các cửa sổ cụ thể (chợ, thực đơn, bếp...) nằm trong dialogs.js.
+import { CROPS, CROP_ORDER, TIME, TOOLS, ITEMS } from '../config/gameData.js';
 import { formatClock } from '../core/game.js';
+import { reputationProgress, season, dayOfSeason, cropInSeason } from '../core/progress.js';
 
-const h = (tag, cls, html) => {
+export const h = (tag, cls, html) => {
   const el = document.createElement(tag);
   if (cls) el.className = cls;
   if (html !== undefined) el.innerHTML = html;
@@ -14,14 +16,17 @@ const TOOL_TIPS = {
   till: 'Chạm hoặc vuốt qua các ô cỏ để xới đất.',
   plant: 'Chọn hạt ở trên, rồi chạm hoặc vuốt qua ô đã xới để gieo.',
   water: 'Chạm hoặc vuốt qua ô đất để tưới. Cây chỉ lớn khi đất ẩm.',
+  fert: 'Bón phân 🧪 cho cây đang lớn để cây lớn nhanh hơn.',
   harvest: 'Chạm hoặc vuốt qua các cây đã chín để thu hoạch.',
 };
 
-function partOfDay(min) {
+function partOfDay(min, phase) {
+  if (phase === 'service') return ['🏮', 'Quán đang mở'];
+  if (phase === 'closed') return ['🌙', 'Đã đóng quán'];
   if (min < 9 * 60) return ['🌅', 'Buổi sáng'];
   if (min < 13 * 60) return ['☀️', 'Buổi trưa'];
-  if (min < TIME.evening) return ['🌤️', 'Buổi chiều'];
-  return ['🌇', 'Chiều tối'];
+  if (min < TIME.prep) return ['🌤️', 'Buổi chiều'];
+  return ['🌇', 'Chuẩn bị mở quán'];
 }
 
 export class Hud {
@@ -31,9 +36,10 @@ export class Hud {
     this.tool = 'till';
     this.selectedSeed = 'rau';
 
-    // Thẻ nhân vật + tiền (góc trái trên)
+    // ---- Góc trái trên: nhân vật, cấp quán, tiền ----
     const profile = h('div', 'profile');
-    profile.innerHTML = `<div class="avatar">👩‍🌾</div><div class="pname"><b>Chủ nông trại</b><small>Nông Trại &amp; Quán Nhỏ</small></div>`;
+    profile.innerHTML = `<div class="avatar">👩‍🌾</div><div class="pname"><b>Chủ nông trại</b><span class="rep"><small></small><i><em></em></i></span></div>`;
+    this.repEl = profile.querySelector('.rep');
     const stats = h('div', 'pstats');
     this.moneyEl = h('div', 'pill pill-money');
     this.harvestEl = h('div', 'pill');
@@ -41,23 +47,25 @@ export class Hud {
     const topLeft = h('div', 'top-left');
     topLeft.append(profile, stats);
 
-    // Đồng hồ (giữa trên)
+    // ---- Đồng hồ ----
     this.clockEl = h('div', 'clock');
 
-    // Nút tròn góc phải
+    // ---- Nút tròn góc phải ----
     const topRight = h('div', 'top-right');
-    const bagBtn = h('button', 'round', '🎒');
-    bagBtn.setAttribute('aria-label', 'Kho đồ');
-    bagBtn.onclick = () => this.openBag();
-    const menuBtn = h('button', 'round', '⚙️');
-    menuBtn.setAttribute('aria-label', 'Tuỳ chọn');
-    menuBtn.onclick = () => this.openMenu();
-    topRight.append(bagBtn, menuBtn);
+    this.roundBtns = {};
+    [['recipes', '📖', 'Sổ công thức'], ['upgrades', '🔨', 'Nâng cấp & trang trí'], ['bag', '🎒', 'Kho đồ'], ['settings', '⚙️', 'Tuỳ chọn']].forEach(([id, icon, label]) => {
+      const b = h('button', 'round', icon);
+      b.setAttribute('aria-label', label);
+      b.title = label;
+      b.onclick = () => handlers.open(id);
+      this.roundBtns[id] = b;
+      topRight.append(b);
+    });
 
-    // Cột nút đi tới các khu (bên trái)
+    // ---- Cột nút khu vực ----
     const side = h('div', 'side');
     this.sideBtns = {};
-    [['farm', '🌱', 'Ruộng'], ['market', '🛒', 'Chợ'], ['restaurant', '🍜', 'Quán']].forEach(([id, icon, label]) => {
+    [['farm', '🌱', 'Ruộng'], ['restaurant', '🍜', 'Quán'], ['market', '🛒', 'Chợ']].forEach(([id, icon, label]) => {
       const b = h('button', 'round side-btn', `<span>${icon}</span><small>${label}</small>`);
       b.setAttribute('aria-label', label);
       b.onclick = () => handlers.goto(id);
@@ -65,7 +73,17 @@ export class Hud {
       side.append(b);
     });
 
-    // Dòng gợi ý
+    // ---- Nút quán (góc phải dưới): lên thực đơn / mở quán / trạng thái ----
+    this.prepBtn = h('button', 'prep-btn');
+    this.prepBtn.onclick = () => handlers.prepAction();
+    this.prepBtn.hidden = true;
+    this.servicePill = h('div', 'service-pill');
+    this.servicePill.hidden = true;
+    this.carryPill = h('button', 'carry-pill');
+    this.carryPill.hidden = true;
+    this.carryPill.onclick = () => handlers.dropCarry?.();
+
+    // ---- Dòng gợi ý ----
     this.tipEl = h('div', 'tip');
     this.tipText = h('span', '');
     const tipClose = h('button', 'tip-x', '✕');
@@ -76,7 +94,7 @@ export class Hud {
     };
     this.tipEl.append(h('b', '', '💡'), this.tipText, tipClose);
 
-    // Dãy hạt giống (hiện khi chọn công cụ Gieo)
+    // ---- Dãy hạt giống ----
     this.seedbar = h('div', 'seedbar');
     this.seedBtns = {};
     CROP_ORDER.forEach((id) => {
@@ -89,7 +107,7 @@ export class Hud {
       this.seedbar.append(b);
     });
 
-    // Thanh công cụ
+    // ---- Thanh công cụ ----
     this.toolbar = h('div', 'toolbar');
     this.toolBtns = {};
     TOOLS.forEach((t) => {
@@ -101,6 +119,8 @@ export class Hud {
     });
     this.seedBadge = h('span', 'badge');
     this.toolBtns.plant.append(this.seedBadge);
+    this.fertBadge = h('span', 'badge');
+    this.toolBtns.fert.append(this.fertBadge);
 
     const bottom = h('div', 'bottom');
     bottom.append(this.seedbar, this.toolbar);
@@ -112,7 +132,7 @@ export class Hud {
     this.modal = h('div', 'modal-wrap');
     this.modal.hidden = true;
 
-    // Gợi ý xoay ngang màn hình
+    // ---- Gợi ý xoay ngang ----
     this.rotate = h('div', 'rotate', '<div class="rotate-card"><div class="rot-phone">📱</div><b>Xoay ngang điện thoại để chơi thoải mái hơn</b><button class="btn btn-soft">Vẫn chơi màn dọc</button></div>');
     this.rotate.querySelector('button').onclick = () => {
       this.rotateDismissed = true;
@@ -120,7 +140,7 @@ export class Hud {
     };
     addEventListener('resize', () => this._checkOrientation());
 
-    root.append(this.labels, this.floats, topLeft, this.clockEl, this.tipEl, topRight, side, bottom, this.toastEl, this.modal, this.rotate);
+    root.append(this.labels, this.floats, topLeft, this.clockEl, this.tipEl, topRight, side, bottom, this.prepBtn, this.servicePill, this.carryPill, this.toastEl, this.modal, this.rotate);
     this._checkOrientation();
     this.setTool(this.tool);
   }
@@ -142,22 +162,57 @@ export class Hud {
     document.body.classList.toggle('portrait', portrait);
   }
 
-  render(state) {
+  render(state, game) {
     if (!state) return;
     this._state = state;
+    if (game) this._game = game;
+    const phase = this._game?.phase || 'farm';
     this.moneyEl.innerHTML = `💰 <b>${state.money}</b>`;
-    const produce = CROP_ORDER.reduce((n, id) => n + (state.items[CROPS[id].harvestItem] || 0), 0);
+    const produce = CROP_ORDER.reduce((n, id) => n + (state.items[CROPS[id].harvestItem] || 0), 0) + (state.items.trung || 0) + (state.items.ca || 0);
     this.harvestEl.innerHTML = `🧺 <b>${produce}</b>`;
-    const [icon, part] = partOfDay(state.minutes);
-    this.clockEl.innerHTML = `<span class="clock-icon">${icon}</span><span class="ctime">${formatClock(state.minutes)}</span><span class="cinfo"><b>Ngày ${state.day}</b><small>${part}</small></span>`;
+    const rp = reputationProgress(state);
+    this.repEl.querySelector('small').textContent = `⭐ Quán cấp ${rp.level}`;
+    this.repEl.querySelector('em').style.width = Math.round(rp.frac * 100) + '%';
+    const [icon, part] = partOfDay(state.minutes, phase);
+    const se = season(state);
+    const weather = state.weather?.rain ? ' · 🌧️' : '';
+    this.clockEl.innerHTML = `<span class="clock-icon">${icon}</span><span class="ctime">${formatClock(state.minutes)}</span><span class="cinfo"><b>Ngày ${state.day} · ${se.icon} ${se.name} ${dayOfSeason(state.day)}/7${weather}</b><small>${part}</small></span>`;
     CROP_ORDER.forEach((id) => {
       const b = this.seedBtns[id];
       b.querySelector('b').textContent = state.seeds[id] || 0;
       b.classList.toggle('active', this.selectedSeed === id);
       b.classList.toggle('empty', !state.seeds[id]);
+      b.hidden = !state.seeds[id] && !cropInSeason(state, id);
     });
     this.toolBtns.plant.querySelector('.ti').textContent = CROPS[this.selectedSeed].icon;
     this.seedBadge.textContent = state.seeds[this.selectedSeed] || 0;
+    this.fertBadge.textContent = state.items.phan || 0;
+    this._renderRestaurantBits(state, phase);
+  }
+
+  _renderRestaurantBits(state, phase) {
+    const r = state.restaurant;
+    // Nút quán
+    let btn = null;
+    if (phase === 'prep' || phase === 'farm') {
+      if (!r.menuSet && phase === 'prep') btn = ['📋', 'Lên thực đơn', true];
+      else if (!r.menuSet) btn = ['📋', 'Thực đơn', false];
+      else btn = ['🏮', 'Mở quán', phase === 'prep'];
+    } else if (phase === 'closed') btn = ['🌙', 'Tổng kết', true];
+    this.prepBtn.hidden = !btn;
+    if (btn) {
+      this.prepBtn.innerHTML = `<span>${btn[0]}</span><small>${btn[1]}</small>`;
+      this.prepBtn.classList.toggle('pulse', btn[2]);
+    }
+    // Trạng thái lúc mở quán
+    this.servicePill.hidden = phase !== 'service';
+    if (phase === 'service') {
+      const waiting = r.customers.filter((c) => c.state === 'waiting').length;
+      const n = r.customers.filter((c) => c.state !== 'leaving').length;
+      this.servicePill.innerHTML = `🏮 <b>${n}</b> khách${waiting ? ` · <span class="warn">${waiting} chờ món</span>` : ''} · 💰 ${r.today.revenue + r.today.tips}`;
+    }
+    this.carryPill.hidden = !r.carry;
+    if (r.carry) this.carryPill.innerHTML = `🍽️ Đang bưng: <b>${this.handlers.dishName(r.carry)}</b> <small>· chạm để đặt lại quầy</small>`;
   }
 
   // ---- Nhãn gắn trên vật thể 3D ----
@@ -176,26 +231,26 @@ export class Hud {
     el.style.transform = `translate(${screen.x}px, ${screen.y}px) translate(-50%, -100%)`;
   }
 
-  floatText(screen, text) {
+  floatText(screen, text, cls = '') {
     if (!screen) return;
-    const el = h('div', 'floattext', text);
+    const el = h('div', 'floattext ' + cls, text);
     el.style.left = screen.x + 'px';
     el.style.top = screen.y + 'px';
     this.floats.append(el);
-    setTimeout(() => el.remove(), 1300);
+    setTimeout(() => el.remove(), 1400);
   }
 
   toast(text) {
-    this.toastEl.textContent = text;
+    this.toastEl.innerHTML = text;
     this.toastEl.classList.add('show');
     clearTimeout(this._toastT);
-    this._toastT = setTimeout(() => this.toastEl.classList.remove('show'), 2400);
+    this._toastT = setTimeout(() => this.toastEl.classList.remove('show'), 2600);
   }
 
   // ---- Cửa sổ ----
-  openModal(title, body, { onClose, closable = true } = {}) {
+  openModal(title, body, { onClose, closable = true, wide = false } = {}) {
     this.modal.innerHTML = '';
-    const card = h('div', 'modal');
+    const card = h('div', 'modal' + (wide ? ' wide' : ''));
     const head = h('div', 'modal-head');
     head.append(h('h2', '', title));
     if (closable) {
@@ -212,6 +267,7 @@ export class Hud {
   }
 
   closeModal() {
+    if (this.modal.hidden) return;
     this.modal.hidden = true;
     this.handlers.pause(false);
     const cb = this._onClose;
@@ -235,130 +291,12 @@ export class Hud {
     this.openModal(title, body);
   }
 
-  openBag() {
-    const s = this._state;
-    const body = h('div', 'bag');
-    const sec = (title, entries) => {
-      body.append(h('h3', '', title));
-      const grid = h('div', 'bag-grid');
-      entries.forEach(([icon, name, n]) => grid.append(h('div', 'bag-item' + (n ? '' : ' zero'), `<span>${icon}</span><small>${name}</small><b>×${n}</b>`)));
-      body.append(grid);
-    };
-    sec('Nông sản & nguyên liệu', Object.entries(ITEMS).map(([id, it]) => [it.icon, it.name, s.items[id] || 0]));
-    sec('Hạt giống', CROP_ORDER.map((id) => [CROPS[id].icon, 'Hạt ' + CROPS[id].name, s.seeds[id] || 0]));
-    this.openModal('🎒 Kho đồ', body);
-  }
-
-  openMarket(game) {
-    const body = h('div', 'market');
-    const tabs = h('div', 'tabs');
-    const buyTab = h('button', 'tab active', 'Mua');
-    const sellTab = h('button', 'tab', 'Bán');
-    tabs.append(buyTab, sellTab);
-    const list = h('div', 'shoplist');
-    body.append(tabs, list);
-    let mode = 'buy';
-
-    const row = (icon, name, sub, price, btnText, disabled, onClick) => {
-      const r = h('div', 'shoprow');
-      r.append(h('div', 'shop-ico', icon));
-      r.append(h('div', 'shop-name', `<b>${name}</b><small>${sub}</small>`));
-      const b = h('button', 'btn btn-pink', `${btnText} <span>💰${price}</span>`);
-      b.disabled = disabled;
-      b.onclick = () => {
-        onClick();
-        draw();
-      };
-      r.append(b);
-      return r;
-    };
-
-    const draw = () => {
-      const s = game.state;
-      list.innerHTML = '';
-      buyTab.classList.toggle('active', mode === 'buy');
-      sellTab.classList.toggle('active', mode === 'sell');
-      if (mode === 'buy') {
-        CROP_ORDER.forEach((id) => {
-          const c = CROPS[id];
-          list.append(row(c.icon, 'Hạt ' + c.name, `Đang có ${s.seeds[id] || 0} · lớn trong ${c.growTime}s · thu ${c.harvestAmount}`, c.seedPrice, 'Mua', s.money < c.seedPrice, () => {
-            const r = game.buySeed(id, 1);
-            if (!r.ok) this.toast(r.reason);
-          }));
-        });
-        Object.entries(ITEMS).filter(([, it]) => it.buyPrice).forEach(([id, it]) => {
-          list.append(row(it.icon, it.name, `Đang có ${s.items[id] || 0} · dùng để nấu ăn`, it.buyPrice, 'Mua', s.money < it.buyPrice, () => {
-            const r = game.buyItem(id, 1);
-            if (!r.ok) this.toast(r.reason);
-          }));
-        });
-      } else {
-        Object.entries(ITEMS).forEach(([id, it]) => {
-          const have = s.items[id] || 0;
-          list.append(row(it.icon, it.name, `Đang có ${have}`, it.sellPrice, 'Bán', have <= 0, () => {
-            const r = game.sellItem(id, 1);
-            if (!r.ok) this.toast(r.reason);
-          }));
-        });
-      }
-      list.append(h('p', 'hint', mode === 'buy' ? 'Mẹo: rau lớn nhanh nhất, lúa thu được nhiều nhất mỗi ô.' : 'Từ bản sau, nông sản sẽ dùng để nấu món ở quán. Giờ bán bớt phần dư cũng được.'));
-    };
-    buyTab.onclick = () => ((mode = 'buy'), draw());
-    sellTab.onclick = () => ((mode = 'sell'), draw());
-    draw();
-    this.openModal('🛒 Chợ quê', body);
-    this.handlers.onMarket?.();
-  }
-
-  openEvening(state, todayHarvest, onNewDay) {
-    const body = h('div', 'summary');
-    body.innerHTML = `
-      <p>Trời đã chiều, hết giờ làm đồng hôm nay.</p>
-      <div class="stats">
-        <div><span>🧺</span><b>${todayHarvest}</b><small>nông sản thu hôm nay</small></div>
-        <div><span>💰</span><b>${state.money}</b><small>xu đang có</small></div>
-      </div>
-      <p class="hint">Phần mở quán buổi tối sẽ có ở bản tiếp theo. Sang ngày mới, đất khô lại và cần tưới tiếp.</p>`;
-    const btn = h('button', 'btn btn-pink btn-big', '☀️ Ngày mới');
-    btn.onclick = () => {
-      this.closeModal();
-      onNewDay();
-    };
-    body.append(btn);
-    this.openModal(`🌇 Hết ngày ${state.day}`, body, { closable: false });
-  }
-
-  openMenu() {
-    const body = h('div', 'menu');
-    body.innerHTML = '<p>Tiến độ được tự động lưu trên máy này.</p>';
-    const reset = h('button', 'btn btn-danger', 'Chơi lại từ đầu');
-    reset.onclick = () => {
-      if (reset.dataset.confirm) {
-        this.closeModal();
-        this.handlers.reset();
-      } else {
-        reset.dataset.confirm = '1';
-        reset.textContent = 'Bấm lần nữa để xoá tiến độ';
-      }
-    };
-    const help = h('div', 'help', `
-      <p><b>Cách chơi</b></p>
-      <ul>
-        <li>Chọn công cụ ở thanh dưới: 🪏 Xới → 🌱 Gieo → 💧 Tưới → 🧺 Thu.</li>
-        <li>Chạm một ô, hoặc giữ và vuốt qua nhiều ô để làm liền một lượt.</li>
-        <li>Cây chỉ lớn khi đất ẩm. Sáng mỗi ngày đất khô lại.</li>
-        <li>Ô có 🔒 là đất chưa mở, chạm để mua thêm.</li>
-        <li>Chạm chuồng gà để nhặt trứng, chạm sạp chợ để mua bán.</li>
-        <li>Kéo chỗ trống để nhìn xung quanh, chụm 2 ngón để phóng to.</li>
-      </ul>`);
-    const replay = h('button', 'btn btn-soft', '📖 Xem lại hướng dẫn');
-    replay.onclick = () => {
-      this.closeModal();
-      this.handlers.replayTutorial?.();
-    };
-    const row = h('div', 'btn-row');
-    row.append(replay, reset);
-    body.append(help, row);
-    this.openModal('⚙️ Tuỳ chọn', body);
+  itemsLine(ing, state) {
+    return Object.entries(ing)
+      .map(([id, n]) => {
+        const have = state ? state.items[id] || 0 : n;
+        return `<span class="ing${have < n ? ' short' : ''}">${ITEMS[id].icon}×${n}</span>`;
+      })
+      .join(' ');
   }
 }

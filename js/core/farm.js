@@ -1,5 +1,5 @@
 // Logic ô đất theo công cụ: xới -> gieo -> tưới -> lớn -> thu hoạch (rồi đất về chưa xới).
-import { CROPS, CROP_STAGES, FARM } from '../config/gameData.js';
+import { CROPS, CROP_STAGES, FARM, FERTILIZER_BOOST } from '../config/gameData.js';
 import { emptyPlot } from './state.js';
 
 export function cropStage(plot) {
@@ -33,6 +33,12 @@ export function canApply(state, index, tool, seedId) {
       if (isRipe(plot)) return { ok: false, reason: 'Cây chín rồi, thu hoạch thôi!' };
       if (plot.watered) return { ok: false, reason: 'Đất còn ẩm rồi.' };
       return { ok: true };
+    case 'fert':
+      if (!plot.crop) return { ok: false, reason: 'Gieo cây trước rồi mới bón phân.' };
+      if (isRipe(plot)) return { ok: false, reason: 'Cây chín rồi, thu hoạch thôi!' };
+      if (plot.fert) return { ok: false, reason: 'Ô này đã bón phân rồi.' };
+      if ((state.items.phan || 0) <= 0) return { ok: false, reason: 'Hết phân bón. Ra chợ mua thêm nhé!' };
+      return { ok: true };
     case 'harvest':
       if (!plot.crop) return { ok: false, reason: 'Ô này chưa có cây.' };
       if (!isRipe(plot)) return { ok: false, reason: `Cây chưa chín (${Math.round(plot.growth * 100)}%).` };
@@ -54,6 +60,9 @@ export function applyTool(state, index, tool, seedId) {
     plot.growth = 0;
   } else if (tool === 'water') {
     plot.watered = true;
+  } else if (tool === 'fert') {
+    state.items.phan--;
+    plot.fert = true;
   } else if (tool === 'harvest') {
     const crop = CROPS[plot.crop];
     state.items[crop.harvestItem] = (state.items[crop.harvestItem] || 0) + crop.harvestAmount;
@@ -85,7 +94,8 @@ export function tickFarm(state, dt) {
   state.plots.forEach((plot, i) => {
     if (!plot.crop || !plot.watered || plot.growth >= 1) return;
     const before = cropStage(plot);
-    plot.growth = Math.min(1, plot.growth + dt / CROPS[plot.crop].growTime);
+    const boost = plot.fert ? FERTILIZER_BOOST : 1;
+    plot.growth = Math.min(1, plot.growth + (dt * boost) / CROPS[plot.crop].growTime);
     if (cropStage(plot) !== before) changed.push(i);
   });
   return changed;

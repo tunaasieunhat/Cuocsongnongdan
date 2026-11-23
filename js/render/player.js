@@ -9,6 +9,7 @@ export class Player {
   constructor(mesh, obstacles, nav) {
     this.mesh = mesh;
     this.nav = nav;
+    this.speed = SPEED;
     this.path = [];
     this.pos = mesh.position;
     this.obstacles = obstacles;
@@ -81,7 +82,7 @@ export class Player {
         if (this.path.length) this.dest = this.path.shift();
         else this._arrive();
       } else {
-        const step = Math.min(dist, SPEED * dt);
+        const step = Math.min(dist, this.speed * dt);
         this._lastPos.copy(this.pos);
         this.pos.x += (dx / dist) * step;
         this.pos.z += (dz / dist) * step;

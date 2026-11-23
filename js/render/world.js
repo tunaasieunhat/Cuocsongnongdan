@@ -55,21 +55,33 @@ export class World {
     this._skyEve = new THREE.Color(0xffd0b8);
     this._sunDay = new THREE.Color(P.sunColor);
     this._sunEve = new THREE.Color(0xffb38a);
+    this._skyNight = new THREE.Color(0x3a3f6b);
+    this._sunNight = new THREE.Color(0x9fa8ff);
+    this._skyRain = new THREE.Color(0xaab6c4);
+    this._fogDay = new THREE.Color(P.fog);
   }
 
-  // t: 0 = sáng sớm, 1 = chiều tối
-  setDaylight(t) {
-    const k = Math.max(0, (t - 0.65) / 0.35);
-    this.scene.background.copy(this._skyDay).lerp(this._skyEve, k);
-    if (this.scene.fog) this.scene.fog.color.set(this.P.fog).lerp(this._skyEve, k);
-    this.sun.color.copy(this._sunDay).lerp(this._sunEve, k);
-    this.sun.intensity = this.P.sunIntensity * (1 - 0.25 * k);
+  // Ánh sáng theo giờ (phút trong game): ngày -> hoàng hôn (15h-18h) -> đêm (18h-21h); mưa thì xám hơn
+  setDaylight(minutes, rain = false) {
+    const h = minutes / 60;
+    const eve = THREE.MathUtils.clamp((h - 15) / 3, 0, 1);
+    const night = THREE.MathUtils.clamp((h - 18) / 3, 0, 1);
+    const sky = this.scene.background.copy(this._skyDay).lerp(this._skyEve, eve).lerp(this._skyNight, night);
+    if (rain) sky.lerp(this._skyRain, 0.55 * (1 - night));
+    if (this.scene.fog) this.scene.fog.color.copy(sky).lerp(this._fogDay, 0.4 * (1 - night));
+    this.sun.color.copy(this._sunDay).lerp(this._sunEve, eve).lerp(this._sunNight, night);
+    this.sun.intensity = this.P.sunIntensity * (1 - 0.2 * eve - 0.55 * night) * (rain ? 0.7 : 1);
+    this.hemi.intensity = this.P.ambientIntensity * (1 - 0.45 * night) * (rain ? 0.85 : 1);
   }
 
   _buildTerrain() {
     const M = this.M;
     const s = this.scene;
-    s.add(M.island(ISLAND.w, ISLAND.d));
+    const island = M.island(ISLAND.w, ISLAND.d);
+    s.add(island);
+    // Mặt cỏ có vật liệu riêng để đổi màu theo mùa
+    this.islandTop = island.children[0];
+    this.islandTop.material = this.islandTop.material.clone();
     // Đường chính dọc mép trước đảo
     s.add(M.path(ISLAND.w, 1.8, 0, 8.2));
     // Sân hồng quanh quán
@@ -189,7 +201,7 @@ export class World {
     });
 
     // Quán (phần phục vụ khách làm ở bước sau)
-    const rest = M.restaurant(3);
+    const rest = M.restaurant(0); // bàn ghế do RestaurantView quản lý
     rest.position.set(7.5, 0, -1.5);
     s.add(rest);
     this.restaurant = rest;
@@ -201,10 +213,11 @@ export class World {
     rest.userData.tables.forEach(({ table }) => {
       this.obstacles.push({ x: table.position.x + 7.5, z: table.position.z - 1.5, r: 0.75 });
     });
+    // Chỉ bảng hiệu là vùng chạm "Quán"; bàn, bếp, quầy có vùng chạm riêng
     this._addInteractable({
       type: 'restaurant', name: 'Quán',
-      hitbox: this._addHitbox(6, 3, 5, 7.5, 1.4, -1.5),
-      stand: new THREE.Vector3(7.5, 0, 1.9),
+      hitbox: this._addHitbox(2.6, 1.0, 0.6, 6.9, 2.95, -3.9),
+      stand: new THREE.Vector3(7.5, 0, 2.2),
       anchor: new THREE.Vector3(6.9, 3.9, -4.0),
     });
   }
@@ -214,6 +227,12 @@ export class World {
     const s = this.scene;
     s.add(M.pond(2.4, 4.4, 1.3));
     this.obstacles.push({ x: 2.4, z: 4.4, r: 1.7 });
+    this._addInteractable({
+      type: 'pond', name: 'Ao cá',
+      hitbox: this._addHitbox(3.2, 0.6, 3.2, 2.4, 0.2, 4.4),
+      stand: new THREE.Vector3(2.4, 0, 6.5),
+      anchor: new THREE.Vector3(2.4, 1.3, 4.4),
+    });
     const trees = [
       ['cherry', -13.6, -9.4, 1.1], ['round', 13, -9, 1.2], ['cherry', 13.4, 4.4, 1.1], ['pine', -14, -3.5, 1],
       ['cherry', 1.4, -9.4, 1], ['round', 12.8, 10, 1], ['pine', 4.4, 10.2, 0.9], ['cherry', 1.6, -4.6, 0.9],
@@ -242,6 +261,43 @@ export class World {
     [[10.5, 5.8, 1], [-0.2, -8.6, 0.8], [-14, 6.6, 0.7]].forEach(([x, z, sc]) => s.add(M.rock(x, z, sc)));
   }
 
+  // ---- Mùa & mưa ----
+
+  setSeason(i) {
+    const tints = [this.P.grass, 0xa9d67e, 0xd2cf8a, 0xdfe8dc];
+    this.islandTop.material.color.set(tints[i] ?? this.P.grass);
+  }
+
+  setRain(on) {
+    if (!this._rain) {
+      const N = 500;
+      const pos = new Float32Array(N * 6);
+      for (let i = 0; i < N; i++) {
+        const x = (Math.random() - 0.5) * 40, y = Math.random() * 18, z = (Math.random() - 0.5) * 30;
+        pos.set([x, y, z, x - 0.08, y - 0.7, z - 0.08], i * 6);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      this._rain = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xbfd9ef, transparent: true, opacity: 0.55 }));
+      this._rain.frustumCulled = false;
+      this.scene.add(this._rain);
+    }
+    this._rain.visible = on;
+    this.raining = on;
+  }
+
+  _updateRain(dt) {
+    if (!this._rain?.visible) return;
+    const a = this._rain.geometry.attributes.position;
+    for (let i = 0; i < a.count; i += 2) {
+      let y = a.getY(i) - dt * 16;
+      if (y < 0) y += 18;
+      a.setY(i, y);
+      a.setY(i + 1, y - 0.7);
+    }
+    a.needsUpdate = true;
+  }
+
   // ---- Ô đất ----
 
   updateCell(i, plot) {
@@ -267,6 +323,14 @@ export class World {
 
   syncCells(plots) {
     for (let i = 0; i < FARM.cells; i++) this.updateCell(i, plots[i]);
+  }
+
+  syncChickens(n) {
+    while (this.chickens.length < n) {
+      const ch = this.M.chicken(-10.2 + this.chickens.length * 0.5, -6.6);
+      this.scene.add(ch);
+      this.chickens.push({ mesh: ch, target: ch.position.clone(), wait: Math.random() * 2 });
+    }
   }
 
   updateEggs(n) {
@@ -318,6 +382,7 @@ export class World {
   }
 
   update(dt, time) {
+    this._updateRain(dt);
     this.effects = this.effects.filter((e) => {
       e.life -= dt;
       e.vy -= (e.g || 0) * dt;
