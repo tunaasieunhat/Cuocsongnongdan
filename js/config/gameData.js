@@ -37,10 +37,25 @@ export const TIME = {
   minutesPerSecond: 3, // 1 giây thực = 3 phút trong game
 };
 
+// Công cụ trên thanh dưới cùng: chọn công cụ rồi chạm (hoặc vuốt) qua ô đất
+export const TOOLS = [
+  { id: 'hand',    icon: '✋', label: 'Xem' },
+  { id: 'till',    icon: '🪏', label: 'Xới' },
+  { id: 'plant',   icon: '🌱', label: 'Gieo' },
+  { id: 'water',   icon: '💧', label: 'Tưới' },
+  { id: 'harvest', icon: '🧺', label: 'Thu' },
+];
+
+// Ruộng: 1 lô 3x3 ô. Mở sẵn vài ô, ô còn lại mua để mở (giá tăng dần).
+export const FARM = {
+  cells: 9,
+  startOpen: 6,
+  unlockPrices: [30, 45, 60],
+};
+
 // Trạng thái khi bắt đầu game mới
 export const START = {
   money: 40,
   seeds: { rau: 4, cachua: 2, lua: 0 },
   items: { rau: 0, cachua: 0, lua: 0, trung: 0, ca: 0 },
-  plotCount: 6,
 };

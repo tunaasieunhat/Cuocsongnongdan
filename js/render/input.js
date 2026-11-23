@@ -4,10 +4,13 @@ import * as THREE from '../../vendor/three.module.min.js';
 const TAP_MOVE = 10; // px: di chuyển ít hơn mức này vẫn tính là chạm
 
 export class PointerInput {
-  constructor(canvas, rig, { onTap }) {
+  // canPaint(x,y): trả true nếu vuốt bắt đầu ở đây sẽ "quét" công cụ qua nhiều ô thay vì kéo camera
+  constructor(canvas, rig, { onTap, canPaint = () => false, onPaint = () => {} }) {
     this.canvas = canvas;
     this.rig = rig;
     this.onTap = onTap;
+    this.canPaint = canPaint;
+    this.onPaint = onPaint;
     this.pointers = new Map();
     this.ray = new THREE.Raycaster();
     this.ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -38,7 +41,8 @@ export class PointerInput {
 
   _down(e) {
     this.canvas.setPointerCapture(e.pointerId);
-    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, drag: false });
+    const paint = this.pointers.size === 0 && this.canPaint(e.clientX, e.clientY);
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, drag: false, paint });
     if (this.pointers.size === 2) this._pinchStart();
     else this._grab = this.groundPoint(e.clientX, e.clientY);
   }
@@ -47,7 +51,10 @@ export class PointerInput {
     const [a, b] = [...this.pointers.values()];
     this._pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
     this._pinchZoom = this.rig.zoom;
-    this.pointers.forEach((p) => (p.drag = true));
+    this.pointers.forEach((p) => {
+      p.drag = true;
+      p.paint = false;
+    });
   }
 
   _move(e) {
@@ -63,7 +70,12 @@ export class PointerInput {
     }
     if (!p.drag && Math.hypot(p.x - p.sx, p.y - p.sy) > TAP_MOVE) {
       p.drag = true;
-      this.rig.follow = null; // người chơi tự xem xung quanh thì thôi bám theo
+      if (p.paint) this.onPaint(p.sx, p.sy);
+      else this.rig.follow = null; // người chơi tự xem xung quanh thì thôi bám theo
+    }
+    if (p.paint) {
+      if (p.drag) this.onPaint(p.x, p.y);
+      return;
     }
     if (p.drag && this._grab) {
       const now = this.groundPoint(p.x, p.y);

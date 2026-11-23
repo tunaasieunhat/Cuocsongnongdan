@@ -36,16 +36,21 @@ export class Game {
 
   // ---- Hành động của người chơi (trả về {ok, reason, ...}) ----
 
-  plotAction(index, seedId) {
-    const plot = this.state.plots[index];
-    const action = farm.plotAction(plot);
-    let r;
-    if (action === 'plant') r = farm.plant(this.state, index, seedId);
-    else if (action === 'water') r = farm.water(this.state, index);
-    else if (action === 'harvest') r = farm.harvest(this.state, index);
-    else r = { ok: false, reason: 'Cây đang lớn, chờ chút nhé.' };
-    r.action = action;
+  canApply(index, tool, seedId) {
+    return farm.canApply(this.state, index, tool, seedId);
+  }
+
+  applyTool(index, tool, seedId) {
+    const r = farm.applyTool(this.state, index, tool, seedId);
+    r.tool = tool;
     if (r.ok) this.emit('plot', index);
+    this.emit('change');
+    return r;
+  }
+
+  unlockPlot() {
+    const r = farm.unlockPlot(this.state);
+    if (r.ok) this.emit('plots');
     this.emit('change');
     return r;
   }

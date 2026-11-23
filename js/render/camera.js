@@ -19,7 +19,9 @@ export class CameraRig {
     // Luôn thấy khoảng 22 đơn vị theo chiều ngang (màn ngang) hoặc 13 đơn vị (màn dọc)
     const halfW = aspect >= 1 ? 11 : 7;
     const halfH = halfW / aspect;
-    Object.assign(this.cam, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
+    // Dịch khung nhìn xuống để cảnh nằm cao hơn, chừa chỗ cho thanh công cụ ở đáy màn hình
+    const shift = halfH * 0.06;
+    Object.assign(this.cam, { left: -halfW, right: halfW, top: halfH - shift, bottom: -halfH - shift });
     this.cam.updateProjectionMatrix();
   }
 

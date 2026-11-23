@@ -551,4 +551,156 @@ export class Models {
     g.add(potPlant);
     return g;
   }
+  // ---------- Phong cách "Giấc Mơ": ruộng lô, cây hoa, đèn, cổng ----------
+
+  // Khung lô ruộng gỗ nâng cao, bên trong chia ô
+  lotFrame(size) {
+    const g = new THREE.Group();
+    const base = this.box(size, 0.22, size, this.p.woodDark, 0, 0.11, 0);
+    base.castShadow = false;
+    g.add(base);
+    const t = 0.26, h = 0.42, c = this.p.wood;
+    g.add(this.box(size + t, h, t, c, 0, h / 2, -size / 2));
+    g.add(this.box(size + t, h, t, c, 0, h / 2, size / 2));
+    g.add(this.box(t, h, size, c, -size / 2, h / 2, 0));
+    g.add(this.box(t, h, size, c, size / 2, h / 2, 0));
+    // Cọc góc
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) =>
+      g.add(this.box(0.34, h + 0.12, 0.34, this.p.woodDark, (sx * size) / 2, (h + 0.12) / 2, (sz * size) / 2))
+    );
+    return g;
+  }
+
+  // Một ô đất trong lô: cỏ khi chưa xới, đất luống khi đã xới
+  cell(size = 1.6) {
+    const g = new THREE.Group();
+    const grass = this.box(size, 0.12, size, this.p.grassDark, 0, 0.28, 0);
+    grass.castShadow = false;
+    const tufts = new THREE.Group();
+    [[-0.4, -0.3], [0.35, 0.2], [-0.1, 0.45], [0.45, -0.45]].forEach(([x, z]) => {
+      const t = this.grassTuft(x, z);
+      t.scale.setScalar(0.8);
+      tufts.add(t);
+    });
+    tufts.position.y = 0.34;
+    const soil = this.box(size, 0.16, size, this.p.soilTilled || this.p.soil, 0, 0.3, 0);
+    soil.castShadow = false;
+    const ridges = [];
+    for (let i = -1; i <= 1; i++) {
+      const r = this.box(size * 0.9, 0.07, 0.2, this.p.soilTilled || this.p.soil, 0, 0.41, i * (size / 3));
+      r.castShadow = false;
+      ridges.push(r);
+      g.add(r);
+    }
+    g.add(grass, tufts, soil);
+    g.userData = { grass, tufts, soil, ridges };
+    return g;
+  }
+
+  setCellState(cell, { tilled, watered, locked }) {
+    const u = cell.userData;
+    const showSoil = tilled && !locked;
+    u.grass.visible = !showSoil;
+    u.tufts.visible = !showSoil;
+    u.soil.visible = showSoil;
+    u.ridges.forEach((r) => (r.visible = showSoil));
+    const c = watered ? this.p.soilWet : this.p.soilTilled || this.p.soil;
+    u.soil.material = this.mat(c);
+    u.ridges.forEach((r) => (r.material = this.mat(c)));
+    // Ô khoá: cỏ nhạt hơn và không có khóm cỏ, nhìn khác ô đã mở
+    u.grass.material = this.mat(locked ? this.p.cliff : this.p.grassDark);
+    if (locked) u.tufts.visible = false;
+  }
+
+  cherryTree(x, z, s = 1) {
+    const g = new THREE.Group();
+    const trunk = this.mesh(new THREE.CylinderGeometry(0.14, 0.22, 1.2, 6), this.p.trunk);
+    trunk.position.y = 0.6;
+    g.add(trunk);
+    const bl = this.p.blossom || [this.p.roof];
+    [[0, 1.75, 0, 0.85], [0.5, 1.45, 0.25, 0.55], [-0.45, 1.5, -0.2, 0.55], [0.1, 2.25, -0.1, 0.5]].forEach(([bx, by, bz, r], i) => {
+      const b = this.mesh(new THREE.IcosahedronGeometry(r, 0), bl[i % bl.length]);
+      b.position.set(bx, by, bz);
+      g.add(b);
+    });
+    g.position.set(x, 0, z);
+    g.scale.setScalar(s);
+    g.rotation.y = x * 1.7 + z;
+    return g;
+  }
+
+  lampPost(x, z) {
+    const g = new THREE.Group();
+    const pole = this.mesh(new THREE.CylinderGeometry(0.06, 0.09, 2.2, 6), this.p.lamp || this.p.woodDark);
+    pole.position.y = 1.1;
+    const lamp = this.mesh(new THREE.CylinderGeometry(0.16, 0.12, 0.3, 6), this.p.lantern, { emissive: true });
+    lamp.position.y = 2.32;
+    const cap = this.mesh(new THREE.ConeGeometry(0.22, 0.18, 6), this.p.lamp || this.p.woodDark);
+    cap.position.y = 2.56;
+    const foot = this.mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.16, 6), this.p.lamp || this.p.woodDark);
+    foot.position.y = 0.08;
+    g.add(pole, lamp, cap, foot);
+    g.position.set(x, 0, z);
+    return g;
+  }
+
+  // Cổng vòm kết hoa
+  flowerArch(x, z, rotY = 0, width = 2.4) {
+    const g = new THREE.Group();
+    const h = 2.2;
+    [-1, 1].forEach((sx) => g.add(this.box(0.16, h, 0.16, this.p.wall, (sx * width) / 2, h / 2, 0)));
+    const n = 9;
+    for (let i = 0; i <= n; i++) {
+      const a = Math.PI * (i / n);
+      const px = -Math.cos(a) * (width / 2);
+      const py = h + Math.sin(a) * 0.55;
+      const seg = this.box(0.32, 0.12, 0.18, this.p.wall, px, py, 0);
+      seg.rotation.z = Math.PI / 2 - a;
+      g.add(seg);
+      const f = this.mesh(new THREE.IcosahedronGeometry(0.11, 0), this.p.flower[i % this.p.flower.length]);
+      f.position.set(px, py + 0.1, 0.1);
+      g.add(f);
+    }
+    g.position.set(x, 0, z);
+    g.rotation.y = rotY;
+    return g;
+  }
+
+  scarecrow(x, z) {
+    const g = new THREE.Group();
+    g.add(this.box(0.1, 1.7, 0.1, this.p.woodDark, 0, 0.85, 0));
+    g.add(this.box(1.1, 0.08, 0.08, this.p.woodDark, 0, 1.25, 0));
+    const shirt = this.mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.6, 6), this.p.roof);
+    shirt.position.y = 1.15;
+    const head = this.mesh(new THREE.IcosahedronGeometry(0.22, 0), this.p.hat);
+    head.position.y = 1.65;
+    const hat = this.mesh(new THREE.ConeGeometry(0.42, 0.3, 10), this.p.hat);
+    hat.position.y = 1.9;
+    g.add(shirt, head, hat);
+    g.position.set(x, 0, z);
+    return g;
+  }
+
+  signBoard(x, z, rotY = 0) {
+    const g = new THREE.Group();
+    g.add(this.box(0.1, 1.0, 0.1, this.p.woodDark, 0, 0.5, 0));
+    g.add(this.box(0.9, 0.5, 0.08, this.p.wood, 0, 1.0, 0.05));
+    g.position.set(x, 0, z);
+    g.rotation.y = rotY;
+    return g;
+  }
+
+  // Đường đá lát rải rác (mỗi viên là một lăng trụ dẹt)
+  stones(points) {
+    const g = new THREE.Group();
+    points.forEach(([x, z], i) => {
+      const r = 0.32 + ((i * 37) % 10) / 60;
+      const st = this.mesh(new THREE.CylinderGeometry(r, r, 0.06, 7), this.p.stone || this.p.path);
+      st.position.set(x, 0.04, z);
+      st.rotation.y = i * 0.9;
+      st.castShadow = false;
+      g.add(st);
+    });
+    return g;
+  }
 }

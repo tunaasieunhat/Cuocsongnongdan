@@ -1,7 +1,7 @@
 // Trạng thái game: chỉ là dữ liệu thuần (JSON được), để lưu local hay online đều dễ.
-import { START, TIME, COOP } from '../config/gameData.js';
+import { START, TIME, COOP, FARM } from '../config/gameData.js';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export function createNewState() {
   return {
@@ -11,14 +11,14 @@ export function createNewState() {
     money: START.money,
     seeds: { ...START.seeds },
     items: { ...START.items },
-    plots: Array.from({ length: START.plotCount }, emptyPlot),
+    plots: Array.from({ length: FARM.startOpen }, emptyPlot),
     coop: { eggs: 0, timers: Array(COOP.chickens).fill(0) },
     stats: { harvested: 0, earned: 0 },
   };
 }
 
 export function emptyPlot() {
-  return { crop: null, growth: 0, watered: false };
+  return { tilled: false, crop: null, growth: 0, watered: false };
 }
 
 // Đọc bản lưu cũ: bổ sung trường còn thiếu để không vỡ khi game có thêm tính năng.
@@ -30,7 +30,7 @@ export function migrateState(raw) {
   s.items = { ...base.items, ...raw.items };
   s.coop = { ...base.coop, ...raw.coop };
   s.stats = { ...base.stats, ...raw.stats };
-  s.plots = Array.isArray(raw.plots) && raw.plots.length ? raw.plots.map((p) => ({ ...emptyPlot(), ...p })) : base.plots;
+  s.plots = Array.isArray(raw.plots) && raw.plots.length ? raw.plots.map((p) => ({ ...emptyPlot(), tilled: !!p.crop, ...p })) : base.plots;
   s.version = SAVE_VERSION;
   return s;
 }

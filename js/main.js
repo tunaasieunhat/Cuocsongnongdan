@@ -1,18 +1,19 @@
 // Điểm khởi động: nối logic (core) + hiển thị 3D (render) + giao diện (ui) + lưu (save).
 import * as THREE from '../vendor/three.module.min.js';
 import { PALETTES, ACTIVE_PALETTE } from './config/palettes.js';
-import { CROPS, CROP_ORDER, ITEMS, TIME } from './config/gameData.js';
+import { CROPS, CROP_ORDER, ITEMS, TIME, FARM } from './config/gameData.js';
 import { Game } from './core/game.js';
 import { migrateState, createNewState } from './core/state.js';
-import { plotAction } from './core/farm.js';
+import { isRipe, nextUnlockPrice } from './core/farm.js';
 import { LocalStorageAdapter } from './save/storage.js';
 import { Models } from './render/models.js';
-import { World, SPOTS } from './render/world.js';
+import { World, SPOTS, LOT } from './render/world.js';
 import { CameraRig } from './render/camera.js';
 import { Player } from './render/player.js';
 import { PointerInput } from './render/input.js';
 import { NavGrid } from './render/pathfinding.js';
 import { Hud } from './ui/hud.js';
+import { sound } from './audio/sound.js';
 
 const palette = PALETTES[ACTIVE_PALETTE];
 const storage = new LocalStorageAdapter();
@@ -35,20 +36,28 @@ async function start() {
   // ---- Thế giới ----
   const models = new Models(palette);
   const world = new World(models, palette);
-  world.syncPlotCount(S().plots.length);
-  S().plots.forEach((p, i) => world.updatePlot(i, p));
+  world.syncCells(S().plots);
   world.updateEggs(S().coop.eggs);
 
   const farmerMesh = models.farmer();
   farmerMesh.position.copy(SPOTS.playerStart);
+  farmerMesh.rotation.y = Math.PI;
   world.scene.add(farmerMesh);
   const player = new Player(farmerMesh, world.obstacles, new NavGrid(world.obstacles));
 
   const rig = new CameraRig();
+  // Camera bám theo điểm này: giữa lô ruộng khi nông dân đang ở ruộng, còn lại thì theo nông dân
+  const camTarget = new THREE.Vector3();
+  const updateCamTarget = () => {
+    const p = player.pos;
+    const atFarm = Math.abs(p.x - LOT.x) < 5.5 && Math.abs(p.z - LOT.z) < 5.5;
+    if (atFarm || jobs.length || current) camTarget.set(LOT.x + 0.6, 0, LOT.z + 0.6);
+    else camTarget.copy(p);
+  };
+  rig.setZoom(1.05);
   rig.focus(SPOTS.farm.x, SPOTS.farm.z, true);
   rig.update(0);
 
-  // Vòng tròn đánh dấu điểm đến
   const marker = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.45, 20), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 }));
   marker.rotation.x = -Math.PI / 2;
   marker.position.y = 0.08;
@@ -59,6 +68,11 @@ async function start() {
   const hud = new Hud(document.getElementById('ui'), {
     goto: (where) => {
       rig.follow = null;
+      if (where === 'market') {
+        const def = world.interactables.find((d) => d.type === 'market');
+        rig.focus(def.stand.x + 2, def.stand.z - 2);
+        return;
+      }
       const p = where === 'farm' ? SPOTS.farm : SPOTS.restaurant;
       rig.focus(p.x, p.z);
     },
@@ -72,29 +86,40 @@ async function start() {
   });
   hud.render(S());
 
-  // Nhãn trên vật thể
+  // ---- Nhãn trên vật thể ----
   const labelFor = new Map();
   world.interactables.forEach((def) => {
     const el = hud.addLabel('wl-' + def.type);
     labelFor.set(def, el);
-    if (def.type === 'market') el.innerHTML = '🛒 Chợ';
-    if (def.type === 'restaurant') el.innerHTML = '🍜 Quán <small>sắp mở</small>';
+    if (def.type === 'market') el.innerHTML = '🛒 Chợ quê<small>Mua hạt · bán nông sản</small>';
+    if (def.type === 'restaurant') el.innerHTML = '🍜 Quán Nhỏ<small>Sắp mở cửa</small>';
+    if (def.type === 'house') el.classList.add('none');
+  });
+  const plates = world.nameplates.map((n) => {
+    const el = hud.addLabel('wl-sign');
+    el.innerHTML = n.text;
+    return { el, anchor: n.anchor };
   });
 
   const refreshLabels = () => {
+    const s = S();
     world.interactables.forEach((def) => {
       const el = labelFor.get(def);
       if (def.type === 'plot') {
-        const plot = S().plots[def.index];
-        const act = plotAction(plot);
+        const plot = s.plots[def.index];
         el.className = 'wlabel wl-plot';
-        if (act === 'harvest') {
+        if (!plot) {
+          const next = def.index === s.plots.length;
+          el.innerHTML = next ? `🔒 ${nextUnlockPrice(s)} xu` : '🔒';
+          el.classList.add('lock');
+          el.classList.toggle('next', next);
+        } else if (isRipe(plot)) {
           el.innerHTML = CROPS[plot.crop].icon;
           el.classList.add('ripe');
-        } else if (act === 'water') {
+        } else if (plot.crop && !plot.watered) {
           el.innerHTML = '💧';
           el.classList.add('dry');
-        } else if (act === 'wait') {
+        } else if (plot.crop) {
           el.innerHTML = `<i style="width:${Math.round(plot.growth * 100)}%"></i>`;
           el.classList.add('grow');
         } else {
@@ -102,7 +127,7 @@ async function start() {
           el.classList.add('none');
         }
       } else if (def.type === 'coop') {
-        const n = S().coop.eggs;
+        const n = s.coop.eggs;
         el.innerHTML = n ? `🥚 ×${n}` : '';
         el.classList.toggle('none', !n);
         el.classList.toggle('ripe', n > 0);
@@ -118,40 +143,112 @@ async function start() {
     return { x: ((v3.x + 1) / 2) * innerWidth, y: ((1 - v3.y) / 2) * innerHeight };
   };
 
-  // ---- Hành động ----
-  const pickSeed = () => {
+  // ---- Hàng đợi việc trên ô đất ----
+  // Chạm/vuốt chỉ xếp việc vào hàng; nông dân lần lượt đi tới từng ô và làm.
+  let jobs = [];
+  let current = null;
+  const plotDef = (i) => world.cellViews[i].interact;
+  const queued = (i) => current?.index === i || jobs.some((j) => j.index === i);
+  const refreshHighlight = () => world.highlightCells([...(current ? [current.index] : []), ...jobs.map((j) => j.index)]);
+
+  const pickSeed = (silent) => {
     const s = S();
     if (s.seeds[hud.selectedSeed] > 0) return hud.selectedSeed;
     const other = CROP_ORDER.find((id) => s.seeds[id] > 0);
     if (other) {
       hud.selectedSeed = other;
+      hud.render(s);
+      if (!silent) hud.toast(`Đã đổi sang hạt ${CROPS[other].name}.`);
       return other;
     }
     return hud.selectedSeed;
   };
 
-  const doAction = (def) => {
-    if (def.type === 'plot') {
-      const center = def.anchor.clone().setY(0);
-      player.faceTo(center);
-      player.work();
-      const r = game.plotAction(def.index, pickSeed());
-      const at = toScreen(def.anchor);
-      if (!r.ok) return hud.toast(r.reason);
-      if (r.action === 'plant') {
-        world.puff(center, palette.soil);
-        hud.floatText(at, `Gieo ${CROPS[S().plots[def.index].crop].icon}`);
-        sound('plant');
-      } else if (r.action === 'water') {
-        world.splashWater(center);
-        hud.floatText(at, '💧 Đã tưới');
-        sound('water');
-      } else if (r.action === 'harvest') {
-        world.puff(center, palette.veg);
-        hud.floatText(at, `+${r.amount} ${ITEMS[r.item].icon}`);
-        sound('harvest');
+  const enqueue = (index, silent) => {
+    if (queued(index)) return;
+    const tool = hud.tool;
+    const seed = tool === 'plant' ? pickSeed(silent) : null;
+    // Gieo nhiều ô: trừ trước số hạt đã dành cho các ô đang xếp hàng
+    if (tool === 'plant') {
+      const promised = jobs.filter((j) => j.tool === 'plant' && j.seed === seed).length + (current?.tool === 'plant' && current.seed === seed ? 1 : 0);
+      if ((S().seeds[seed] || 0) - promised <= 0) {
+        if (!silent) hud.toast(`Hết hạt ${CROPS[seed].name}. Ra chợ mua thêm nhé!`);
+        return;
       }
-    } else if (def.type === 'coop') {
+    }
+    const check = game.canApply(index, tool, seed);
+    if (!check.ok) {
+      if (!silent) hud.toast(check.reason);
+      return;
+    }
+    jobs.push({ index, tool, seed });
+    rig.follow = camTarget;
+    refreshHighlight();
+  };
+
+  const clearJobs = () => {
+    jobs = [];
+    refreshHighlight();
+  };
+
+  const runJob = (job) => {
+    const def = plotDef(job.index);
+    const center = def.anchor.clone().setY(0);
+    player.faceTo(center);
+    player.work();
+    const r = game.applyTool(job.index, job.tool, job.seed);
+    const at = toScreen(def.anchor);
+    if (!r.ok) return;
+    if (job.tool === 'till') {
+      world.puff(center, palette.soilTilled || palette.soil);
+      sound('till');
+    } else if (job.tool === 'plant') {
+      world.puff(center, palette.leaf);
+      hud.floatText(at, `Gieo ${CROPS[job.seed].icon}`);
+      sound('plant');
+    } else if (job.tool === 'water') {
+      world.splashWater(center);
+      sound('water');
+    } else if (job.tool === 'harvest') {
+      world.puff(center, palette.veg);
+      hud.floatText(at, `+${r.amount} ${ITEMS[r.item].icon}`);
+      sound('harvest');
+    }
+  };
+
+  const pump = () => {
+    if (current || !jobs.length || player.dest || player.workT > 0) return;
+    current = jobs.shift();
+    player.walkTo(plotDef(current.index).stand, () => {
+      runJob(current);
+      current = null;
+      refreshHighlight();
+    });
+  };
+
+  const describePlot = (i) => {
+    const p = S().plots[i];
+    if (!p.crop) return p.tilled ? '🟫 Đất đã xới, sẵn sàng gieo hạt.' : '🌿 Ô cỏ. Dùng 🪏 Xới để làm đất.';
+    const c = CROPS[p.crop];
+    if (isRipe(p)) return `${c.icon} ${c.name} đã chín! Dùng 🧺 Thu để thu hoạch.`;
+    return `${c.icon} ${c.name} · ${Math.round(p.growth * 100)}% · ${p.watered ? 'đất ẩm 💧' : 'đất khô, cần tưới'}`;
+  };
+
+  const askUnlock = (index) => {
+    const s = S();
+    if (index !== s.plots.length) return hud.toast('Mở ô phía trước trước nhé.');
+    const price = nextUnlockPrice(s);
+    hud.openConfirm('🔓 Mở thêm ô đất', `Mở ô đất này với giá ${price} xu? (đang có ${s.money} xu)`, `Mở · 💰${price}`, () => {
+      const r = game.unlockPlot();
+      if (!r.ok) return hud.toast(r.reason);
+      sound('harvest');
+      hud.floatText(toScreen(plotDef(r.index).anchor), '🎉 Ô đất mới!');
+    });
+  };
+
+  // ---- Việc ở công trình khác ----
+  const doAction = (def) => {
+    if (def.type === 'coop') {
       player.faceTo(def.anchor);
       player.work();
       const r = game.collectEggs();
@@ -174,14 +271,30 @@ async function start() {
     marker.scale.setScalar(1);
   };
 
+  // ---- Chạm & vuốt ----
   const hitboxes = world.interactables.map((d) => d.hitbox);
+  const pickAt = (x, y) => input.setRay(x, y).intersectObjects(hitboxes, false)[0]?.object.userData.interactable;
   const input = new PointerInput(renderer.domElement, rig, {
+    canPaint: (x, y) => {
+      if (paused || hud.tool === 'hand') return false;
+      const def = pickAt(x, y);
+      return def?.type === 'plot' && !def.locked;
+    },
+    onPaint: (x, y) => {
+      const def = pickAt(x, y);
+      if (def?.type === 'plot' && !def.locked) enqueue(def.index, true);
+    },
     onTap: (x, y) => {
       if (paused) return;
-      const hit = input.setRay(x, y).intersectObjects(hitboxes, false)[0];
-      rig.follow = player.pos;
-      if (hit) {
-        const def = hit.object.userData.interactable;
+      const def = pickAt(x, y);
+      if (def?.type === 'plot') {
+        if (def.locked) return askUnlock(def.index);
+        if (hud.tool === 'hand') return hud.toast(describePlot(def.index));
+        return enqueue(def.index, false);
+      }
+      clearJobs();
+      rig.follow = camTarget;
+      if (def) {
         showMarker(def.stand);
         player.walkTo(def.stand, () => doAction(def));
       } else {
@@ -198,9 +311,10 @@ async function start() {
   let dirty = false;
   let harvestAtDayStart = S().stats.harvested;
   game.on('plot', (i) => {
-    world.updatePlot(i, S().plots[i]);
+    world.updateCell(i, S().plots[i]);
     dirty = true;
   });
+  game.on('plots', () => world.syncCells(S().plots));
   game.on('coop', () => {
     world.updateEggs(S().coop.eggs);
     dirty = true;
@@ -211,6 +325,7 @@ async function start() {
     dirty = true;
   });
   const showEvening = () => {
+    clearJobs();
     sound('evening');
     hud.openEvening(S(), S().stats.harvested - harvestAtDayStart, () => game.newDay());
   };
@@ -241,9 +356,6 @@ async function start() {
   });
 
   if (game.isEvening) showEvening();
-  else if (S().day === 1 && S().stats.harvested === 0) {
-    hud.toast('Chạm vào ô đất trống để gieo hạt 🥬');
-  }
 
   // ---- Vòng lặp ----
   const clock = new THREE.Clock();
@@ -261,10 +373,12 @@ async function start() {
         refreshLabels();
         dirty = true;
       }
+      pump();
     }
     world.setDaylight((S().minutes - TIME.dayStart) / (TIME.evening - TIME.dayStart));
     world.update(dt, time);
     player.update(dt);
+    updateCamTarget();
     rig.update(dt);
 
     if (marker.material.opacity > 0) {
@@ -272,34 +386,11 @@ async function start() {
       marker.scale.setScalar(1 + (0.9 - marker.material.opacity) * 0.6);
     }
     world.interactables.forEach((def) => hud.placeLabel(labelFor.get(def), toScreen(def.anchor)));
+    plates.forEach((p) => hud.placeLabel(p.el, toScreen(p.anchor)));
     renderer.render(world.scene, rig.cam);
   });
   window.__game = game; // tiện kiểm thử
-  window.__debug = { world, rig, player, toScreen };
-}
-
-// Âm thanh nhẹ tạm thời (sẽ làm đầy đủ ở bước âm thanh)
-let audioCtx;
-function sound(kind) {
-  try {
-    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-    const notes = { plant: [523], water: [659, 784], harvest: [659, 880], evening: [523, 440, 392] }[kind] || [523];
-    notes.forEach((f, i) => {
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      o.type = 'sine';
-      o.frequency.value = f;
-      const t = audioCtx.currentTime + i * 0.09;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
-      o.connect(g).connect(audioCtx.destination);
-      o.start(t);
-      o.stop(t + 0.3);
-    });
-  } catch {
-    /* không có âm thanh cũng không sao */
-  }
+  window.__debug = { world, rig, player, toScreen, hud, FARM };
 }
 
 start();

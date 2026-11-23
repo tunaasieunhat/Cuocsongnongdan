@@ -2,6 +2,59 @@
 // Mỗi bảng chỉ là dữ liệu màu + vài tuỳ chọn ánh sáng, đổi phong cách không cần sửa code vẽ.
 
 export const PALETTES = {
+  // D. Giấc Mơ — pastel kem hồng, cỏ xanh nhạt, đường đá hồng, cây hoa anh đào, sương nhẹ
+  //    (cùng tinh thần với game Tiệm Hoa Giấc Mơ)
+  giacmo: {
+    name: 'Giấc Mơ',
+    toon: false,
+    sky: 0xbfe8ff,
+    fog: 0xe6f2f4,
+    fogNear: 52,
+    fogFar: 95,
+    sunColor: 0xfff1e4,
+    sunIntensity: 1.9,
+    ambientSky: 0xfff4f6,
+    ambientGround: 0xc2d9a8,
+    ambientIntensity: 1.45,
+    grass: 0xb7d68f,
+    grassDark: 0x9cc477,
+    cliff: 0xecd1bf,
+    cliffDark: 0xd9b4a0,
+    soil: 0xb98563,
+    soilWet: 0x8a5d43,
+    soilTilled: 0xa87352,
+    path: 0xf4dccf,
+    stone: 0xf0cfc4,
+    water: 0x9fd6f0,
+    wood: 0xe6bb93,
+    woodDark: 0xbf8f6a,
+    roof: 0xf29bb0,
+    roofAlt: 0xfff6f0,
+    wall: 0xfff3e8,
+    leaf: 0x93c47a,
+    leaf2: 0x76ad6c,
+    blossom: [0xf6a6b9, 0xf9bfcd, 0xef8fa8],
+    trunk: 0x9c6b4e,
+    skin: 0xf6d2b4,
+    shirt: 0x9fe0c4,
+    pants: 0x8494c4,
+    hat: 0xf6dda0,
+    veg: 0x7fcf6a,
+    tomato: 0xf26d6d,
+    rice: 0xc6e08a,
+    riceRipe: 0xf5cf5c,
+    chicken: 0xffffff,
+    comb: 0xf26d6d,
+    beak: 0xffb74d,
+    accent: 0xffd34e,
+    awning: [0xf6a6b9, 0xfff6f0],
+    lantern: 0xffcf7a,
+    lamp: 0x8f7a96,
+    rock: 0xddd5d0,
+    flower: [0xff9fc8, 0xffd34e, 0xffffff, 0xc9a7f5],
+    customers: [0xf6a6b9, 0x9fd6f0, 0xffcf7a, 0xc9a7f5],
+  },
+
   // A. Nắng Đồng Quê — tươi, sáng, xanh lá mát, mái đỏ cam
   nang: {
     name: 'Nắng Đồng Quê',
@@ -141,4 +194,4 @@ export const PALETTES = {
   },
 };
 
-export const ACTIVE_PALETTE = 'nang';
+export const ACTIVE_PALETTE = 'giacmo';

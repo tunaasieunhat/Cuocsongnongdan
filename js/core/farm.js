@@ -1,5 +1,6 @@
-// Logic ô đất: gieo, tưới, lớn, thu hoạch.
-import { CROPS, CROP_STAGES } from '../config/gameData.js';
+// Logic ô đất theo công cụ: xới -> gieo -> tưới -> lớn -> thu hoạch (rồi đất về chưa xới).
+import { CROPS, CROP_STAGES, FARM } from '../config/gameData.js';
+import { emptyPlot } from './state.js';
 
 export function cropStage(plot) {
   if (!plot.crop) return -1;
@@ -12,43 +13,70 @@ export function isRipe(plot) {
   return !!plot.crop && plot.growth >= 1;
 }
 
-// Hành động "mặc định" khi chạm vào ô đất
-export function plotAction(plot) {
-  if (!plot.crop) return 'plant';
-  if (isRipe(plot)) return 'harvest';
-  if (!plot.watered) return 'water';
-  return 'wait';
+// Kiểm tra công cụ dùng được trên ô không (không thay đổi state)
+export function canApply(state, index, tool, seedId) {
+  const plot = state.plots[index];
+  if (!plot) return { ok: false, reason: 'Ô đất này chưa mở.' };
+  switch (tool) {
+    case 'till':
+      if (plot.crop) return { ok: false, reason: 'Ô đang có cây rồi.' };
+      if (plot.tilled) return { ok: false, reason: 'Đất đã xới rồi.' };
+      return { ok: true };
+    case 'plant':
+      if (plot.crop) return { ok: false, reason: 'Ô đang có cây rồi.' };
+      if (!plot.tilled) return { ok: false, reason: 'Đất chưa xới. Chọn 🪏 Xới trước nhé.' };
+      if (!CROPS[seedId]) return { ok: false, reason: 'Chọn hạt giống trước đã.' };
+      if ((state.seeds[seedId] || 0) <= 0) return { ok: false, reason: `Hết hạt ${CROPS[seedId].name}. Ra chợ mua thêm nhé!` };
+      return { ok: true };
+    case 'water':
+      if (!plot.tilled && !plot.crop) return { ok: false, reason: 'Xới đất trước rồi mới tưới.' };
+      if (isRipe(plot)) return { ok: false, reason: 'Cây chín rồi, thu hoạch thôi!' };
+      if (plot.watered) return { ok: false, reason: 'Đất còn ẩm rồi.' };
+      return { ok: true };
+    case 'harvest':
+      if (!plot.crop) return { ok: false, reason: 'Ô này chưa có cây.' };
+      if (!isRipe(plot)) return { ok: false, reason: `Cây chưa chín (${Math.round(plot.growth * 100)}%).` };
+      return { ok: true };
+    default:
+      return { ok: false, reason: '' };
+  }
 }
 
-export function plant(state, index, cropId) {
+export function applyTool(state, index, tool, seedId) {
+  const check = canApply(state, index, tool, seedId);
+  if (!check.ok) return check;
   const plot = state.plots[index];
-  if (!plot || plot.crop) return { ok: false, reason: 'Ô đất đã có cây.' };
-  if (!CROPS[cropId]) return { ok: false, reason: 'Chưa chọn hạt giống.' };
-  if ((state.seeds[cropId] || 0) <= 0) return { ok: false, reason: `Hết hạt ${CROPS[cropId].name}. Ra chợ mua thêm nhé!` };
-  state.seeds[cropId]--;
-  plot.crop = cropId;
-  plot.growth = 0;
-  // Gieo xong đất vẫn giữ trạng thái ướt nếu đã tưới trước đó
+  if (tool === 'till') {
+    plot.tilled = true;
+  } else if (tool === 'plant') {
+    state.seeds[seedId]--;
+    plot.crop = seedId;
+    plot.growth = 0;
+  } else if (tool === 'water') {
+    plot.watered = true;
+  } else if (tool === 'harvest') {
+    const crop = CROPS[plot.crop];
+    state.items[crop.harvestItem] = (state.items[crop.harvestItem] || 0) + crop.harvestAmount;
+    state.stats.harvested += crop.harvestAmount;
+    Object.assign(plot, emptyPlot());
+    return { ok: true, item: crop.harvestItem, amount: crop.harvestAmount };
+  }
   return { ok: true };
 }
 
-export function water(state, index) {
-  const plot = state.plots[index];
-  if (!plot) return { ok: false };
-  if (plot.watered) return { ok: false, reason: 'Đất còn ướt rồi.' };
-  plot.watered = true;
-  return { ok: true };
+// Giá mở ô đất tiếp theo (null nếu đã mở hết)
+export function nextUnlockPrice(state) {
+  if (state.plots.length >= FARM.cells) return null;
+  return FARM.unlockPrices[state.plots.length - FARM.startOpen] ?? FARM.unlockPrices.at(-1);
 }
 
-export function harvest(state, index) {
-  const plot = state.plots[index];
-  if (!plot || !isRipe(plot)) return { ok: false, reason: 'Cây chưa chín.' };
-  const crop = CROPS[plot.crop];
-  state.items[crop.harvestItem] = (state.items[crop.harvestItem] || 0) + crop.harvestAmount;
-  state.stats.harvested += crop.harvestAmount;
-  plot.crop = null;
-  plot.growth = 0;
-  return { ok: true, item: crop.harvestItem, amount: crop.harvestAmount };
+export function unlockPlot(state) {
+  const price = nextUnlockPrice(state);
+  if (price === null) return { ok: false, reason: 'Đã mở hết ô đất.' };
+  if (state.money < price) return { ok: false, reason: `Cần ${price} xu để mở ô đất.` };
+  state.money -= price;
+  state.plots.push(emptyPlot());
+  return { ok: true, index: state.plots.length - 1, price };
 }
 
 // Trả về danh sách ô vừa đổi giai đoạn để phần hiển thị cập nhật
