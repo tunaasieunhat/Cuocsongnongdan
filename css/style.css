@@ -465,3 +465,68 @@ body.portrait .side { top: calc(var(--edge-t) + 142px); }
   .wl-plot.ripe, .wl-coop.ripe, .rot-phone { animation: none; }
   .floattext { animation-duration: 0.01s; }
 }
+
+/* ---------- Hướng dẫn chơi ---------- */
+.tut-card {
+  position: absolute;
+  top: calc(var(--edge-t) + 56px);
+  right: var(--edge-r);
+  width: min(270px, 34vw);
+  padding: 8px 12px 10px;
+  border-radius: 20px;
+  background: var(--cream);
+  border: 2px solid var(--pink);
+  box-shadow: var(--shadow);
+  box-sizing: border-box;
+  pointer-events: auto;
+  animation: tut-in 0.25s ease-out;
+}
+.tut-card.tut-big { top: 50%; right: auto; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100% - 32px)); padding: 14px 16px 14px; }
+.tut-head { flex-wrap: wrap; }
+.tut-head { display: flex; align-items: center; gap: 8px; }
+.tut-head b { font-family: var(--font-display); font-size: 17px; color: var(--pink-deep); line-height: 1.2; }
+.tut-count {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #fff4d0;
+  border: 1.5px solid #f6e2a6;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.tut-skip { margin-left: auto; flex: none; padding: 4px 8px; border-radius: 10px; font-size: 12px; font-weight: 800; color: var(--ink-soft); }
+.tut-card p { margin: 6px 0 0; font-size: 14px; font-weight: 700; line-height: 1.4; }
+.tut-card.tut-big p { font-size: 15px; }
+.tut-next { display: block; width: 100%; margin-top: 10px; min-height: 46px; font-size: 17px; }
+.tut-progress { height: 4px; margin-top: 8px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.tut-progress i { display: block; height: 100%; background: var(--pink-deep); transition: width 0.3s; }
+@keyframes tut-in { from { opacity: 0; margin-top: -6px; } }
+
+.tut-focus { position: relative; z-index: 2; animation: tut-pulse 1.1s ease-in-out infinite; }
+@keyframes tut-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(234, 127, 153, 0.7), inset 0 0 0 2px var(--pink-deep); }
+  50% { box-shadow: 0 0 0 9px rgba(234, 127, 153, 0), inset 0 0 0 2px var(--pink-deep); }
+}
+.tut-hand {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 38px;
+  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 2px rgba(107, 74, 60, 0.3));
+  will-change: transform;
+}
+.tut-hand::after { content: ''; }
+.tut-hand { animation: tut-tap 0.9s ease-in-out infinite; }
+@keyframes tut-tap { 50% { margin-top: 10px; } }
+@media (max-height: 480px) {
+  .tut-card { top: calc(var(--edge-t) + 44px); padding: 6px 10px 8px; }
+  .tut-card p { font-size: 13px; margin-top: 4px; }
+  .tut-head b { font-size: 15px; }
+}
+body.portrait .tut-card:not(.tut-big) { top: calc(var(--edge-t) + 138px); left: var(--edge-l); right: var(--edge-r); width: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .tut-focus, .tut-hand, .tut-card { animation: none; }
+}

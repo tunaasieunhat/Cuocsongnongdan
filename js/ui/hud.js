@@ -56,10 +56,12 @@ export class Hud {
 
     // Cột nút đi tới các khu (bên trái)
     const side = h('div', 'side');
+    this.sideBtns = {};
     [['farm', '🌱', 'Ruộng'], ['market', '🛒', 'Chợ'], ['restaurant', '🍜', 'Quán']].forEach(([id, icon, label]) => {
       const b = h('button', 'round side-btn', `<span>${icon}</span><small>${label}</small>`);
       b.setAttribute('aria-label', label);
       b.onclick = () => handlers.goto(id);
+      this.sideBtns[id] = b;
       side.append(b);
     });
 
@@ -128,7 +130,7 @@ export class Hud {
     Object.entries(this.toolBtns).forEach(([k, b]) => b.classList.toggle('active', k === id));
     this.seedbar.hidden = id !== 'plant';
     this.tipText.textContent = TOOL_TIPS[id];
-    this.tipEl.hidden = !!this.tipsOff;
+    this.tipEl.hidden = !!this.tipsOff || !!this.tutorialActive;
     clearTimeout(this._tipT);
     this._tipT = setTimeout(() => (this.tipEl.hidden = true), 6000);
     this.handlers.toolChanged?.(id);
@@ -305,6 +307,7 @@ export class Hud {
     sellTab.onclick = () => ((mode = 'sell'), draw());
     draw();
     this.openModal('🛒 Chợ quê', body);
+    this.handlers.onMarket?.();
   }
 
   openEvening(state, todayHarvest, onNewDay) {
@@ -348,7 +351,14 @@ export class Hud {
         <li>Chạm chuồng gà để nhặt trứng, chạm sạp chợ để mua bán.</li>
         <li>Kéo chỗ trống để nhìn xung quanh, chụm 2 ngón để phóng to.</li>
       </ul>`);
-    body.append(help, reset);
+    const replay = h('button', 'btn btn-soft', '📖 Xem lại hướng dẫn');
+    replay.onclick = () => {
+      this.closeModal();
+      this.handlers.replayTutorial?.();
+    };
+    const row = h('div', 'btn-row');
+    row.append(replay, reset);
+    body.append(help, row);
     this.openModal('⚙️ Tuỳ chọn', body);
   }
 }

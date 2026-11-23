@@ -14,6 +14,7 @@ export function createNewState() {
     plots: Array.from({ length: FARM.startOpen }, emptyPlot),
     coop: { eggs: 0, timers: Array(COOP.chickens).fill(0) },
     stats: { harvested: 0, earned: 0 },
+    tutorial: { step: 0, done: false, rewarded: false },
   };
 }
 
@@ -31,6 +32,8 @@ export function migrateState(raw) {
   s.coop = { ...base.coop, ...raw.coop };
   s.stats = { ...base.stats, ...raw.stats };
   s.plots = Array.isArray(raw.plots) && raw.plots.length ? raw.plots.map((p) => ({ ...emptyPlot(), tilled: !!p.crop, ...p })) : base.plots;
+  // Bản lưu cũ chưa có hướng dẫn: ai đã thu hoạch rồi thì coi như đã học xong
+  if (!raw.tutorial) s.tutorial = { step: 0, done: (s.stats.harvested || 0) > 0, rewarded: false };
   s.version = SAVE_VERSION;
   return s;
 }

@@ -13,6 +13,7 @@ import { Player } from './render/player.js';
 import { PointerInput } from './render/input.js';
 import { NavGrid } from './render/pathfinding.js';
 import { Hud } from './ui/hud.js';
+import { Tutorial } from './ui/tutorial.js';
 import { sound } from './audio/sound.js';
 
 const palette = PALETTES[ACTIVE_PALETTE];
@@ -48,10 +49,12 @@ async function start() {
   const rig = new CameraRig();
   // Camera bám theo điểm này: giữa lô ruộng khi nông dân đang ở ruộng, còn lại thì theo nông dân
   const camTarget = new THREE.Vector3();
+  // Điểm nhìn khi ở ruộng: lệch để lô ruộng nằm hơi trái-dưới, chừa chỗ cho thẻ hướng dẫn bên phải
+  const FARM_VIEW = { x: LOT.x + 0.6, z: LOT.z - 1.2 };
   const updateCamTarget = () => {
     const p = player.pos;
     const atFarm = Math.abs(p.x - LOT.x) < 5.5 && Math.abs(p.z - LOT.z) < 5.5;
-    if (atFarm || jobs.length || current) camTarget.set(LOT.x + 0.6, 0, LOT.z + 0.6);
+    if (atFarm || jobs.length || current) camTarget.set(FARM_VIEW.x, 0, FARM_VIEW.z);
     else camTarget.copy(p);
   };
   rig.setZoom(1.05);
@@ -82,6 +85,11 @@ async function start() {
     reset: async () => {
       await storage.clear();
       location.reload();
+    },
+    onMarket: () => tutorial?.notify('market'),
+    replayTutorial: () => {
+      clearJobs();
+      tutorial.start(true);
     },
   });
   hud.render(S());
@@ -355,7 +363,29 @@ async function start() {
     rig.resize(innerWidth, innerHeight);
   });
 
-  if (game.isEvening) showEvening();
+  // ---- Hướng dẫn chơi lần đầu ----
+  const focusArea = (where) => {
+    rig.follow = null;
+    if (where === 'farm') return rig.focus(FARM_VIEW.x, FARM_VIEW.z);
+    const def = world.interactables.find((d) => d.type === where);
+    // Đặt công trình lệch trái-dưới giữa màn hình (thẻ hướng dẫn nằm bên phải)
+    if (def) rig.focus(def.stand.x + 0.9, def.stand.z - 2.2);
+  };
+  var tutorial = new Tutorial({
+    game,
+    hud,
+    world,
+    focus: focusArea,
+    onFinish: () => {
+      dirty = true;
+      storage.save(S());
+    },
+  });
+  if (tutorial.active) {
+    tutorial.start();
+  }
+
+  if (game.isEvening && !tutorial.active) showEvening();
 
   // ---- Vòng lặp ----
   const clock = new THREE.Clock();
@@ -387,6 +417,7 @@ async function start() {
     }
     world.interactables.forEach((def) => hud.placeLabel(labelFor.get(def), toScreen(def.anchor)));
     plates.forEach((p) => hud.placeLabel(p.el, toScreen(p.anchor)));
+    tutorial.update(toScreen);
     renderer.render(world.scene, rig.cam);
   });
   window.__game = game; // tiện kiểm thử

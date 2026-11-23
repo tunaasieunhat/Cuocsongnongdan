@@ -10,6 +10,8 @@ export class Game {
   constructor(state = createNewState()) {
     this.state = state;
     this.paused = false;
+    this.clockFrozen = false; // hướng dẫn đang chạy: dừng đồng hồ
+    this.growBoost = 1; // hướng dẫn cho cây lớn nhanh hơn
     this._listeners = {};
   }
 
@@ -28,8 +30,8 @@ export class Game {
   tick(dt) {
     if (this.paused || this.isEvening) return;
     const s = this.state;
-    s.minutes = Math.min(TIME.evening, s.minutes + dt * TIME.minutesPerSecond);
-    farm.tickFarm(s, dt).forEach((i) => this.emit('plot', i));
+    if (!this.clockFrozen) s.minutes = Math.min(TIME.evening, s.minutes + dt * TIME.minutesPerSecond);
+    farm.tickFarm(s, dt * this.growBoost).forEach((i) => this.emit('plot', i));
     if (coop.tickCoop(s, dt)) this.emit('coop');
     if (this.isEvening) this.emit('evening');
   }
