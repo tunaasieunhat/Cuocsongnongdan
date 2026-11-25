@@ -1,5 +1,6 @@
 // Tiến trình: danh tiếng/cấp quán, mở công thức, nâng cấp, trang trí, câu cá, mùa & thời tiết.
-import { REPUTATION_LEVELS, RECIPES, UPGRADES, DECOR, FISHING, SEASONS, DAYS_PER_SEASON, CROPS } from '../config/gameData.js';
+import { REPUTATION_LEVELS, RECIPES, DRINKS, UPGRADES, DECOR, FISHING, SEASONS, DAYS_PER_SEASON, CROPS, FARM } from '../config/gameData.js';
+import { emptyPlot } from './state.js';
 
 export function reputationLevel(state) {
   const p = state.reputation.points;
@@ -29,6 +30,16 @@ export function unlockRecipe(state, id) {
   return { ok: true };
 }
 
+export function unlockDrink(state, id) {
+  const d = DRINKS[id];
+  if (state.drinks[id]) return { ok: false, reason: 'Đã biết pha món này rồi.' };
+  if (reputationLevel(state) < d.level) return { ok: false, reason: `Cần quán cấp ${d.level}.` };
+  if (state.money < d.unlock) return { ok: false, reason: `Cần ${d.unlock} xu.` };
+  state.money -= d.unlock;
+  state.drinks[id] = true;
+  return { ok: true };
+}
+
 export function upgradePrice(state, id) {
   const u = UPGRADES.find((x) => x.id === id);
   const lv = state.upgrades[id] || 0;
@@ -40,10 +51,12 @@ export function buyUpgrade(state, id) {
   const info = upgradePrice(state, id);
   if (!info) return { ok: false, reason: 'Đã nâng cấp tối đa.' };
   if (reputationLevel(state) < info.level) return { ok: false, reason: `Cần quán cấp ${info.level}.` };
+  if (id === 'lot2' && state.plots.length < FARM.cells) return { ok: false, reason: 'Mở hết 9 ô ở lô ruộng đầu trước đã.' };
   if (state.money < info.price) return { ok: false, reason: `Cần ${info.price} xu.` };
   state.money -= info.price;
   state.upgrades[id] = info.next;
-  if (id === 'chickens') state.coop.timers.push(0);
+  if (id === 'chickens' || id === 'ducks') state.coop.timers.push(0);
+  if (id === 'lot2') for (let i = 0; i < FARM.lot2Cells; i++) state.plots.push(emptyPlot());
   return { ok: true, id, level: info.next };
 }
 

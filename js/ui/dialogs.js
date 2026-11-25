@@ -1,9 +1,10 @@
 // Các cửa sổ: kho, chợ, tuỳ chọn, lên thực đơn, bếp, quầy, sổ công thức, nâng cấp & trang trí,
 // câu cá, tổng kết ngày, chuyện khách quen. Mỗi hàm nhận (hud, game, ...).
-import { CROPS, CROP_ORDER, ITEMS, RECIPES, RECIPE_ORDER, UPGRADES, DECOR, REGULARS, FISHING, REPUTATION_LEVELS } from '../config/gameData.js';
+import { CROPS, CROP_ORDER, ITEMS, RECIPES, RECIPE_ORDER, DRINKS, DRINK_ORDER, UPGRADES, DECOR, REGULARS, FISHING, REPUTATION_LEVELS, FARM } from '../config/gameData.js';
 import { h } from './hud.js';
-import { portionsAvailable, menuSize, tableCount, stoveCount, decorBonus } from '../core/restaurant.js';
+import { portionsAvailable, menuSize, tableCount, stoveCount, decorBonus, menuOptions, knownDrinks } from '../core/restaurant.js';
 import { reputationLevel, upgradePrice, fishLeft, cropInSeason, season } from '../core/progress.js';
+import { seedPrice, isMarketFair, currentEvent } from '../core/quests.js';
 
 const money = (n) => `💰${n}`;
 
@@ -62,9 +63,10 @@ export function openMarket(hud, game) {
       CROP_ORDER.forEach((id) => {
         const c = CROPS[id];
         const inSeason = cropInSeason(s, id);
-        list.append(row(c.icon, 'Hạt ' + c.name, inSeason ? `Đang có ${s.seeds[id] || 0} · lớn trong ${c.growTime}s · thu ${c.harvestAmount}` : `Hết mùa · bán vào mùa ${c.seasons.map((i) => ['Xuân', 'Hạ', 'Thu', 'Đông'][i]).join(', ')}`, c.seedPrice, 'Mua', !inSeason || s.money < c.seedPrice, () => game.buySeed(id, 1)));
+        const price = seedPrice(s, c.seedPrice);
+        list.append(row(c.icon, 'Hạt ' + c.name, inSeason ? `Đang có ${s.seeds[id] || 0} · lớn trong ${c.growTime}s · thu ${c.harvestAmount}` : `Hết mùa · bán vào mùa ${c.seasons.map((i) => ['Xuân', 'Hạ', 'Thu', 'Đông'][i]).join(', ')}`, price, 'Mua', !inSeason || s.money < price, () => game.buySeed(id, 1)));
       });
-      Object.entries(ITEMS).filter(([, it]) => it.buyPrice).forEach(([id, it]) => {
+      Object.entries(ITEMS).filter(([, it]) => it.buyPrice && !it.shop).forEach(([id, it]) => {
         list.append(row(it.icon, it.name, `Đang có ${s.items[id] || 0}${id === 'phan' ? ' · dùng với công cụ 🧪 Bón' : ' · dùng để nấu ăn'}`, it.buyPrice, 'Mua', s.money < it.buyPrice, () => game.buyItem(id, 1)));
       });
     } else {
@@ -73,7 +75,7 @@ export function openMarket(hud, game) {
         list.append(row(it.icon, it.name, `Đang có ${have}`, it.sellPrice, 'Bán', have <= 0, () => game.sellItem(id, 1)));
       });
     }
-    list.append(h('p', 'hint', mode === 'buy' ? `Mùa ${season(s).name}: hạt hết mùa sẽ quay lại vào mùa sau.` : 'Nấu thành món bán ở quán thường lời hơn bán sống.'));
+    list.append(h('p', 'hint', mode === 'buy' ? (isMarketFair(s) ? '🎉 Hôm nay chợ phiên: hạt giống giảm 30%!' : `Mùa ${season(s).name}: hạt hết mùa sẽ quay lại vào mùa sau. Ngày 7 mỗi mùa có chợ phiên giảm giá.`) : 'Nấu thành món bán ở quán thường lời hơn bán sống.'));
   };
   buyTab.onclick = () => ((mode = 'buy'), draw());
   sellTab.onclick = () => ((mode = 'sell'), draw());
@@ -82,7 +84,7 @@ export function openMarket(hud, game) {
 }
 
 // ---------- Tuỳ chọn ----------
-export function openSettings(hud, game, { onAudio, onReplay, onReplayQuan, onReset }) {
+export function openSettings(hud, game, { onAudio, onReplay, onReplayQuan, onReset, onGraphics, onOnline }) {
   const s = game.state;
   const body = h('div', 'menu');
   const toggles = h('div', 'toggles');
@@ -99,6 +101,23 @@ export function openSettings(hud, game, { onAudio, onReplay, onReplayQuan, onRes
     return b;
   };
   toggles.append(tog('music', '🎵 Nhạc nền'), tog('sfx', '🔔 Âm thanh'));
+  const gfx = h('div', 'tabs gfx');
+  [['auto', '⚙️ Tự động'], ['low', '🔋 Đồ hoạ nhẹ'], ['high', '✨ Đồ hoạ đẹp']].forEach(([id, label]) => {
+    const b = h('button', 'tab' + (s.settings.graphics === id ? ' active' : ''), label);
+    b.onclick = () => {
+      s.settings.graphics = id;
+      gfx.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === b));
+      onGraphics();
+    };
+    gfx.append(b);
+  });
+  const fps = h('button', 'toggle' + (s.settings.fps ? ' on' : ''), '📈 Hiện FPS<i></i>');
+  fps.onclick = () => {
+    s.settings.fps = !s.settings.fps;
+    fps.classList.toggle('on', s.settings.fps);
+    onGraphics();
+  };
+  toggles.append(fps);
   const help = h('div', 'help', `
     <p><b>Một ngày ở nông trại</b></p>
     <ul>
@@ -120,7 +139,10 @@ export function openSettings(hud, game, { onAudio, onReplay, onReplayQuan, onRes
     reset.textContent = 'Bấm lần nữa để xoá tiến độ';
   };
   row.append(replay, replayQ, reset);
-  body.append(toggles, help, h('p', 'hint', 'Tiến độ được tự động lưu trên máy này.'), row);
+  const online = h('button', 'btn btn-soft', '☁️ Tài khoản & bạn bè');
+  online.onclick = () => (hud.closeModal(), onOnline());
+  row.prepend(online);
+  body.append(toggles, h('h3', '', 'Đồ hoạ'), gfx, help, h('p', 'hint', 'Tiến độ được tự động lưu trên máy này. Máy yếu chọn "Đồ hoạ nhẹ" cho mượt.'), row);
   hud.openModal('⚙️ Tuỳ chọn', body);
 }
 
@@ -128,10 +150,13 @@ export function openSettings(hud, game, { onAudio, onReplay, onReplayQuan, onRes
 export function openMenuPlanner(hud, game, { onDone } = {}) {
   const s = game.state;
   const max = menuSize(s);
-  const picked = new Set(s.restaurant.menu.filter((d) => s.recipes[d]));
-  // Gợi ý: các món nấu được nhiều nhất
+  const opts = menuOptions(s);
+  const picked = new Set(s.restaurant.menu.filter((d) => opts.includes(d)));
+  // Gợi ý: các món nấu được nhiều nhất (ngày lễ ưu tiên món lễ)
+  const ev = currentEvent(s);
+  if (!picked.size && ev && portionsAvailable(s, ev.dish) > 0) picked.add(ev.dish);
   if (!picked.size) {
-    RECIPE_ORDER.filter((d) => s.recipes[d])
+    RECIPE_ORDER.filter((d) => opts.includes(d))
       .sort((a, b) => portionsAvailable(s, b) - portionsAvailable(s, a))
       .slice(0, max)
       .forEach((d) => portionsAvailable(s, d) > 0 && picked.add(d));
@@ -142,10 +167,10 @@ export function openMenuPlanner(hud, game, { onDone } = {}) {
   const draw = () => {
     list.innerHTML = '';
     info.innerHTML = `Chọn tối đa <b>${max}</b> món (quán cấp cao chọn được nhiều hơn). Đã chọn <b>${picked.size}</b>. Món còn thiếu nguyên liệu vẫn chọn được, nhớ đi thu hoạch thêm.`;
-    RECIPE_ORDER.filter((d) => s.recipes[d]).forEach((d) => {
+    RECIPE_ORDER.filter((d) => opts.includes(d)).forEach((d) => {
       const r = RECIPES[d];
       const n = portionsAvailable(s, d);
-      const b = h('button', 'dish' + (picked.has(d) ? ' on' : ''), `<span class="dish-ico">${r.icon}</span><span class="dish-main"><b>${r.name}</b><small>${hud.itemsLine(r.ingredients, s)}</small></span><span class="dish-side"><b>${money(r.price)}</b><small>nấu được ${n}</small></span>`);
+      const b = h('button', 'dish' + (picked.has(d) ? ' on' : '') + (r.event ? ' event' : ''), `<span class="dish-ico">${r.icon}</span><span class="dish-main"><b>${r.name}</b><small>${hud.itemsLine(r.ingredients, s)}</small></span><span class="dish-side"><b>${money(r.price)}</b><small>nấu được ${n}</small></span>`);
       b.onclick = () => {
         if (picked.has(d)) picked.delete(d);
         else if (picked.size < max) picked.add(d);
@@ -168,7 +193,9 @@ export function openMenuPlanner(hud, game, { onDone } = {}) {
   save.onclick = () => submit(false);
   open.onclick = () => submit(true);
   row.append(save, open);
-  body.append(info, list, row);
+  const drinks = knownDrinks(s);
+  const dInfo = h('p', 'hint', `🧋 Đồ uống bán kèm (không tính vào thực đơn): ${drinks.map((d) => DRINKS[d].icon + ' ' + DRINKS[d].name).join(', ')}. Pha ở quầy nước khi khách gọi.`);
+  body.append(info, ...(ev ? [h('p', 'event-note', `${ev.icon} ${ev.name}: ${RECIPES[ev.dish].icon} ${RECIPES[ev.dish].name} bán giá cao, khách gọi nhiều!`)] : []), list, dInfo, row);
   hud.openModal('📋 Thực đơn hôm nay', body, { wide: true });
 }
 
@@ -224,7 +251,7 @@ export function openRecipes(hud, game) {
     body.innerHTML = '';
     body.append(h('p', 'hint', 'Món mới bán giá cao hơn. Một số món cần quán đạt cấp nhất định.'));
     const list = h('div', 'dishlist');
-    RECIPE_ORDER.forEach((d) => {
+    RECIPE_ORDER.filter((d) => !RECIPES[d].event).forEach((d) => {
       const r = RECIPES[d];
       const known = s.recipes[d];
       const row = h('div', 'dish' + (known ? ' known' : ''), `<span class="dish-ico">${known ? r.icon : '❔'}</span><span class="dish-main"><b>${r.name}</b><small>${hud.itemsLine(r.ingredients)} · bán ${money(r.price)}</small></span>`);
@@ -245,6 +272,31 @@ export function openRecipes(hud, game) {
       list.append(row);
     });
     body.append(list);
+    body.append(h('h3', '', '🧋 Đồ uống'));
+    const dl = h('div', 'dishlist');
+    DRINK_ORDER.forEach((d) => {
+      const r = DRINKS[d];
+      const known = s.drinks[d];
+      const row = h('div', 'dish' + (known ? ' known' : ''), `<span class="dish-ico">${known ? r.icon : '❔'}</span><span class="dish-main"><b>${r.name}</b><small>${hud.itemsLine(r.ingredients)} · bán ${money(r.price)}</small></span>`);
+      const side = h('span', 'dish-side');
+      if (known) side.innerHTML = '<b class="ok">✓ Đã biết</b>';
+      else if (lvl < r.level) side.innerHTML = `<b>🔒 Cấp ${r.level}</b>`;
+      else {
+        const b = h('button', 'btn btn-pink', `Học ${money(r.unlock)}`);
+        b.disabled = s.money < r.unlock;
+        b.onclick = () => {
+          const res = game.unlockDrink(d);
+          hud.toast(res.ok ? `🧋 Đã biết pha ${r.name}!` : res.reason);
+          draw();
+        };
+        side.append(b);
+      }
+      row.append(side);
+      dl.append(row);
+    });
+    body.append(dl);
+    body.append(h('h3', '', '🎉 Món ngày lễ'));
+    body.append(h('p', 'hint', `${RECIPES.banhchung.icon} Bánh chưng (Tết, cuối mùa Đông) và ${RECIPES.banhtrungthu.icon} Bánh trung thu (giữa mùa Thu) tự mở trong ngày lễ.`));
   };
   draw();
   hud.openModal('📖 Sổ công thức', body, { wide: true });
@@ -296,8 +348,9 @@ export function openUpgrades(hud, game, startTab = 'quan') {
       let b;
       if (!info) b = h('button', 'btn btn-soft', 'Tối đa');
       else if (lvl < info.level) b = h('button', 'btn btn-soft', `🔒 Cấp ${info.level}`);
+      else if (u.id === 'lot2' && s.plots.length < FARM.cells) b = h('button', 'btn btn-soft', '🔒 Mở hết lô 1');
       else b = h('button', 'btn btn-pink', `Nâng <span>${money(info.price)}</span>`);
-      b.disabled = !info || lvl < info.level || s.money < info.price;
+      b.disabled = !info || lvl < info.level || s.money < info.price || (u.id === 'lot2' && s.plots.length < FARM.cells);
       b.onclick = () => {
         const res = game.buyUpgrade(u.id);
         hud.toast(res.ok ? `🔨 ${u.name} lên bậc ${res.level}!` : res.reason);
@@ -375,6 +428,7 @@ export function openSummary(hud, game, { harvested, onNewDay }) {
     <ul class="sum-list">
       <li>🧺 Thu hoạch hôm nay: <b>${harvested}</b></li>
       ${best ? `<li>🏆 Món bán chạy: <b>${RECIPES[best[0]].icon} ${RECIPES[best[0]].name}</b> (${best[1]} phần)</li>` : ''}
+      ${t.drinks ? `<li>🧋 Ly nước đã bán: <b>${t.drinks}</b></li>` : ''}
       ${t.angry ? `<li>😠 Khách bỏ về vì chờ lâu: <b>${t.angry}</b></li>` : ''}
       ${t.wrong ? `<li>🙃 Bưng nhầm món: <b>${t.wrong}</b> lần</li>` : ''}
       ${t.leftovers ? `<li>🍽️ Món thừa trên quầy (bỏ đi): <b>${t.leftovers}</b></li>` : ''}

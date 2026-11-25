@@ -3,6 +3,7 @@
 import { CROPS, CROP_ORDER, TIME, TOOLS, ITEMS } from '../config/gameData.js';
 import { formatClock } from '../core/game.js';
 import { reputationProgress, season, dayOfSeason, cropInSeason } from '../core/progress.js';
+import { currentEvent, storyValue, currentChapter } from '../core/quests.js';
 
 export const h = (tag, cls, html) => {
   const el = document.createElement(tag);
@@ -38,8 +39,12 @@ export class Hud {
 
     // ---- Góc trái trên: nhân vật, cấp quán, tiền ----
     const profile = h('div', 'profile');
-    profile.innerHTML = `<div class="avatar">👩‍🌾</div><div class="pname"><b>Chủ nông trại</b><span class="rep"><small></small><i><em></em></i></span></div>`;
+    profile.innerHTML = `<div class="avatar">👩‍🌾</div><div class="pname"><b class="pn"></b><span class="rep"><small></small><i><em></em></i></span></div>`;
     this.repEl = profile.querySelector('.rep');
+    this.nameEl = profile.querySelector('.pn');
+    profile.setAttribute('role', 'button');
+    profile.title = 'Tuỳ biến nhân vật';
+    profile.onclick = () => handlers.open('customize');
     const stats = h('div', 'pstats');
     this.moneyEl = h('div', 'pill pill-money');
     this.harvestEl = h('div', 'pill');
@@ -53,7 +58,8 @@ export class Hud {
     // ---- Nút tròn góc phải ----
     const topRight = h('div', 'top-right');
     this.roundBtns = {};
-    [['recipes', '📖', 'Sổ công thức'], ['upgrades', '🔨', 'Nâng cấp & trang trí'], ['bag', '🎒', 'Kho đồ'], ['settings', '⚙️', 'Tuỳ chọn']].forEach(([id, icon, label]) => {
+    this.questBadge = h('span', 'badge rb');
+    [['quests', '📜', 'Nhiệm vụ & đơn đặt'], ['recipes', '📖', 'Sổ công thức'], ['upgrades', '🔨', 'Nâng cấp & trang trí'], ['garden', '🪴', 'Đặt trang trí vườn'], ['bag', '🎒', 'Kho đồ'], ['settings', '⚙️', 'Tuỳ chọn']].forEach(([id, icon, label]) => {
       const b = h('button', 'round', icon);
       b.setAttribute('aria-label', label);
       b.title = label;
@@ -125,6 +131,9 @@ export class Hud {
     const bottom = h('div', 'bottom');
     bottom.append(this.seedbar, this.toolbar);
 
+    this.roundBtns.quests.append(this.questBadge);
+    this.fpsEl = h('div', 'fps');
+    this.fpsEl.hidden = true;
     this.labels = h('div', 'labels');
     this.floats = h('div', 'floats');
     this.toastEl = h('div', 'toast');
@@ -140,7 +149,7 @@ export class Hud {
     };
     addEventListener('resize', () => this._checkOrientation());
 
-    root.append(this.labels, this.floats, topLeft, this.clockEl, this.tipEl, topRight, side, bottom, this.prepBtn, this.servicePill, this.carryPill, this.toastEl, this.modal, this.rotate);
+    root.append(this.labels, this.floats, this.fpsEl, topLeft, this.clockEl, this.tipEl, topRight, side, bottom, this.prepBtn, this.servicePill, this.carryPill, this.toastEl, this.modal, this.rotate);
     this._checkOrientation();
     this.setTool(this.tool);
   }
@@ -171,11 +180,17 @@ export class Hud {
     const produce = CROP_ORDER.reduce((n, id) => n + (state.items[CROPS[id].harvestItem] || 0), 0) + (state.items.trung || 0) + (state.items.ca || 0);
     this.harvestEl.innerHTML = `🧺 <b>${produce}</b>`;
     const rp = reputationProgress(state);
-    this.repEl.querySelector('small').textContent = `⭐ Quán cấp ${rp.level}`;
+    this.repEl.querySelector('small').textContent = `⭐ ${state.custom?.profile.shop || 'Quán'} · cấp ${rp.level}`;
+    this.nameEl.textContent = state.custom?.profile.name || 'Chủ nông trại';
+    // Huy hiệu sổ nhiệm vụ: số việc đã xong chờ nhận thưởng
+    const ready = (state.daily?.tasks || []).filter((t) => t.done && !t.claimed).length + (state.story && currentChapter(state) && storyValue(state).done ? 1 : 0);
+    this.questBadge.textContent = ready;
+    this.questBadge.hidden = !ready;
     this.repEl.querySelector('em').style.width = Math.round(rp.frac * 100) + '%';
     const [icon, part] = partOfDay(state.minutes, phase);
     const se = season(state);
-    const weather = state.weather?.rain ? ' · 🌧️' : '';
+    const ev = currentEvent(state);
+    const weather = (state.weather?.rain ? ' · 🌧️' : '') + (ev ? ` · ${ev.icon}` : '');
     this.clockEl.innerHTML = `<span class="clock-icon">${icon}</span><span class="ctime">${formatClock(state.minutes)}</span><span class="cinfo"><b>Ngày ${state.day} · ${se.icon} ${se.name} ${dayOfSeason(state.day)}/7${weather}</b><small>${part}</small></span>`;
     CROP_ORDER.forEach((id) => {
       const b = this.seedBtns[id];

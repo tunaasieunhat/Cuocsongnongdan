@@ -1,12 +1,14 @@
 // Logic quán ăn: thực đơn, bếp, quầy món, khách (đến -> chờ -> ăn -> trả tiền -> về), dọn bàn.
 // Chỉ dữ liệu + luật chơi; việc khách đi lại trên màn hình do render lo.
-import { RECIPES, RESTAURANT, REGULARS, REGULAR_CHANCE, UPGRADES, DECOR } from '../config/gameData.js';
+import { RECIPES, DRINKS, DRINK_ORDER, RESTAURANT, REGULARS, REGULAR_CHANCE, UPGRADES, DECOR } from '../config/gameData.js';
 import { reputationLevel } from './progress.js';
+import { currentEvent } from './quests.js';
+import { gardenBonus } from './custom.js';
 
 const WALK_OUT = 3; // giây hiển thị khách đi ra trước khi xoá
 
 export function emptyToday() {
-  return { revenue: 0, tips: 0, served: 0, satSum: 0, angry: 0, wrong: 0, sold: {}, leftovers: 0, harvested: 0 };
+  return { revenue: 0, tips: 0, served: 0, satSum: 0, angry: 0, wrong: 0, sold: {}, leftovers: 0, harvested: 0, drinks: 0, happy: 0 };
 }
 
 export function tableCount(state) {
@@ -22,8 +24,21 @@ export function cookTimeMult(state) {
   return 1 - 0.25 * (state.upgrades.fastStove || 0);
 }
 
+// Trang trí quán + trang trí vườn: cộng % hài lòng và tip
 export function decorBonus(state) {
-  return DECOR.reduce((b, d) => b + (state.decor[d.id] ? d.bonus : 0), 0);
+  return DECOR.reduce((b, d) => b + (state.decor[d.id] ? d.bonus : 0), 0) + gardenBonus(state);
+}
+
+export const isDrink = (id) => !!DRINKS[id];
+
+export function knownDrinks(state) {
+  return DRINK_ORDER.filter((d) => state.drinks[d]);
+}
+
+// Món có thể đưa vào thực đơn: món đã học + món lễ đang diễn ra
+export function menuOptions(state) {
+  const ev = currentEvent(state);
+  return Object.keys(RECIPES).filter((d) => (RECIPES[d].event ? RECIPES[d].event === ev?.id : state.recipes[d]));
 }
 
 export function menuSize(state) {
@@ -32,13 +47,14 @@ export function menuSize(state) {
 
 // Số phần có thể nấu từ kho hiện có
 export function portionsAvailable(state, dishId) {
-  const ing = RECIPES[dishId].ingredients;
+  const ing = (RECIPES[dishId] || DRINKS[dishId]).ingredients;
   return Math.min(...Object.entries(ing).map(([id, n]) => Math.floor((state.items[id] || 0) / n)));
 }
 
 export function setMenu(state, dishIds) {
   const r = state.restaurant;
-  const valid = dishIds.filter((d) => state.recipes[d]);
+  const opts = menuOptions(state);
+  const valid = dishIds.filter((d) => opts.includes(d));
   if (!valid.length) return { ok: false, reason: 'Chọn ít nhất 1 món nhé.' };
   if (valid.length > menuSize(state)) return { ok: false, reason: `Thực đơn tối đa ${menuSize(state)} món.` };
   r.menu = valid;
@@ -61,13 +77,27 @@ export function startCooking(state, dishId) {
   return { ok: true, slot };
 }
 
-// Lấy món từ quầy lên tay
+// Pha đồ uống ở quầy nước (một ly mỗi lần, nhanh)
+export function makeDrink(state, drinkId) {
+  const r = state.restaurant;
+  const d = DRINKS[drinkId];
+  if (!state.drinks[drinkId]) return { ok: false, reason: 'Chưa biết pha món nước này.' };
+  if (r.drinkMaking) return { ok: false, reason: 'Đang pha một ly rồi, chờ chút.' };
+  if (r.drinkCounter.length >= RESTAURANT.drinkMax) return { ok: false, reason: 'Quầy nước đầy ly rồi.' };
+  if (portionsAvailable(state, drinkId) < 1) return { ok: false, reason: `Thiếu nguyên liệu pha ${d.name}.` };
+  Object.entries(d.ingredients).forEach(([id, n]) => (state.items[id] -= n));
+  r.drinkMaking = { drink: drinkId, t: 0, total: d.makeTime };
+  return { ok: true };
+}
+
+// Lấy món (hoặc ly nước) từ quầy lên tay
 export function pickUp(state, dishId) {
   const r = state.restaurant;
   if (r.carry) return { ok: false, reason: 'Tay đang bưng món rồi.' };
-  const i = r.counter.indexOf(dishId);
+  const src = isDrink(dishId) ? r.drinkCounter : r.counter;
+  const i = src.indexOf(dishId);
   if (i < 0) return { ok: false, reason: 'Quầy chưa có món này.' };
-  r.counter.splice(i, 1);
+  src.splice(i, 1);
   r.carry = dishId;
   return { ok: true };
 }
@@ -80,8 +110,20 @@ export function findCustomer(state, id) {
 export function serve(state, customerId, dishId = state.restaurant.carry, fromCounter = false) {
   const r = state.restaurant;
   const c = findCustomer(state, customerId);
-  if (!c || c.state !== 'waiting') return { ok: false, reason: 'Khách này không chờ món.' };
   if (!dishId) return { ok: false, reason: 'Chưa bưng món nào.' };
+  // Đồ uống: đưa lúc khách đang chờ hoặc đang ăn đều được
+  if (isDrink(dishId)) {
+    if (!c || (c.state !== 'waiting' && c.state !== 'eating')) return { ok: false, reason: 'Khách này không cần nước.' };
+    if (c.drink !== dishId || c.drinkServed) return { ok: false, reason: c.drink && !c.drinkServed ? `Khách gọi ${DRINKS[c.drink].icon} ${DRINKS[c.drink].name} cơ.` : 'Khách không gọi nước.' };
+    if (fromCounter) {
+      const i = r.drinkCounter.indexOf(dishId);
+      if (i < 0) return { ok: false, reason: 'Quầy nước chưa có ly này.' };
+      r.drinkCounter.splice(i, 1);
+    } else r.carry = null;
+    c.drinkServed = true;
+    return { ok: true, drink: true, customer: c };
+  }
+  if (!c || c.state !== 'waiting') return { ok: false, reason: 'Khách này không chờ món.' };
   if (fromCounter) {
     const i = r.counter.indexOf(dishId);
     if (i < 0) return { ok: false, reason: 'Quầy chưa có món này.' };
@@ -91,7 +133,7 @@ export function serve(state, customerId, dishId = state.restaurant.carry, fromCo
   }
   const frac = Math.max(0, c.patience / c.maxPatience);
   const wrong = dishId !== c.dish;
-  let sat = 40 + 60 * frac + decorBonus(state) * 100;
+  let sat = 40 + 60 * frac + decorBonus(state) * 100 + RESTAURANT.renovateSat * (state.upgrades.renovate || 0);
   if (wrong) sat -= RESTAURANT.wrongDishPenalty;
   c.sat = Math.max(0, Math.min(100, Math.round(sat)));
   c.served = dishId;
@@ -126,9 +168,14 @@ function spawnCustomer(state, events, preferCounter) {
   const level = reputationLevel(state);
   let regular = null;
   const candidates = REGULARS.filter((g) => r.menu.includes(g.favorite) && !r.regularsToday.includes(g.id));
-  if (candidates.length && Math.random() < REGULAR_CHANCE) regular = candidates[Math.floor(Math.random() * candidates.length)];
+  if (!preferCounter && candidates.length && Math.random() < REGULAR_CHANCE) regular = candidates[Math.floor(Math.random() * candidates.length)];
   const vip = !regular && level >= RESTAURANT.vipLevel && Math.random() < RESTAURANT.vipChance;
   let dish = regular ? regular.favorite : r.menu[Math.floor(Math.random() * r.menu.length)];
+  // Ngày lễ: khách hay gọi món lễ
+  const ev = currentEvent(state);
+  if (ev && !regular && r.menu.includes(ev.dish) && Math.random() < ev.eventChance) dish = ev.dish;
+  const drinks = knownDrinks(state);
+  const drink = drinks.length && Math.random() < RESTAURANT.drinkChance ? drinks[Math.floor(Math.random() * drinks.length)] : null;
   // Lúc hướng dẫn: khách gọi đúng món đã có trên quầy cho dễ học
   if (preferCounter && !regular && r.counter.length && r.menu.includes(r.counter[0])) dish = r.counter[0];
   const maxPatience = vip ? RESTAURANT.vipPatience : RESTAURANT.patience;
@@ -142,6 +189,8 @@ function spawnCustomer(state, events, preferCounter) {
     maxPatience,
     vip,
     regular: regular?.id || null,
+    drink,
+    drinkServed: false,
     look: Math.floor(Math.random() * 4),
   };
   if (regular) r.regularsToday.push(regular.id);
@@ -153,6 +202,25 @@ function spawnCustomer(state, events, preferCounter) {
 export function tickRestaurant(state, dt, { accepting, patienceFrozen, preferCounter = false }) {
   const r = state.restaurant;
   const events = [];
+  // Quầy nước
+  if (r.drinkMaking) {
+    r.drinkMaking.t += dt;
+    if (r.drinkMaking.t >= r.drinkMaking.total) {
+      r.drinkCounter.push(r.drinkMaking.drink);
+      events.push({ type: 'drinkReady', drink: r.drinkMaking.drink });
+      r.drinkMaking = null;
+    }
+  }
+  // Đầu bếp thuê: tự nấu món khách đang chờ mà quầy chưa có
+  if (r.open && state.upgrades.chef) {
+    const need = {};
+    r.customers.forEach((c) => c.state === 'waiting' && (need[c.dish] = (need[c.dish] || 0) + 1));
+    r.counter.forEach((d) => need[d] && need[d]--);
+    r.stoves.forEach((s) => s && need[s.dish] && need[s.dish]--);
+    Object.entries(need).forEach(([d, n]) => {
+      if (n > 0 && startCooking(state, d).ok) events.push({ type: 'chefCook', dish: d });
+    });
+  }
   // Bếp
   r.stoves.forEach((s, i) => {
     if (!s) return;
@@ -201,8 +269,17 @@ export function tickRestaurant(state, dt, { accepting, patienceFrozen, preferCou
 function pay(state, c, events) {
   const r = state.restaurant;
   const dish = RECIPES[c.served];
-  const price = Math.round(dish.price * (c.vip ? RESTAURANT.vipPay : 1));
-  const tip = c.wrong ? 0 : Math.round(price * RESTAURANT.tipMax * c.frac * (1 + decorBonus(state)));
+  const ev = currentEvent(state);
+  const evMult = ev && c.served === ev.dish ? ev.payMult : 1;
+  const drinkPrice = c.drink && c.drinkServed ? DRINKS[c.drink].price : 0;
+  const price = Math.round((dish.price * evMult + drinkPrice) * (c.vip ? RESTAURANT.vipPay : 1));
+  if (drinkPrice) {
+    c.sat = Math.min(100, c.sat + RESTAURANT.drinkSat);
+    r.today.drinks++;
+  }
+  const tipMult = (1 + decorBonus(state)) * (drinkPrice ? 1 + RESTAURANT.drinkTipBonus : 1);
+  const tip = c.wrong ? 0 : Math.round(price * RESTAURANT.tipMax * c.frac * tipMult);
+  if (c.sat >= 80) r.today.happy++;
   state.money += price + tip;
   state.stats.earned += price + tip;
   r.today.revenue += price;
@@ -215,7 +292,7 @@ function pay(state, c, events) {
   state.reputation.points += Math.round(c.sat / 20) + (c.vip ? 2 : 0);
   c.state = 'leaving';
   c.t = 0;
-  events.push({ type: 'paid', customer: c, price, tip, repBefore: before });
+  events.push({ type: 'paid', customer: c, price, tip, repBefore: before, drink: !!drinkPrice, happy: c.sat >= 80 });
   // Khách quen: phục vụ đúng món ưa thích và hài lòng thì thân thiết hơn
   if (c.regular && !c.wrong && c.sat >= 70) {
     const reg = REGULARS.find((g) => g.id === c.regular);
@@ -246,6 +323,8 @@ export function resetForNewDay(state) {
   r.dirty = Array(RESTAURANT.maxTables).fill(false);
   r.stoves = [null, null];
   r.counter = [];
+  r.drinkCounter = [];
+  r.drinkMaking = null;
   r.carry = null;
   r.open = false;
   r.menuSet = false;

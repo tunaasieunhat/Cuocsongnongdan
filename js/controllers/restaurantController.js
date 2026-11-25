@@ -1,9 +1,10 @@
 // Điều khiển phần quán: chạm bếp/quầy/bàn, chuỗi việc "lấy món -> bưng -> phục vụ", nhãn trên đầu khách,
 // người phục vụ tự động (khi đã thuê). Nối giữa logic (Game), hiển thị (RestaurantView) và giao diện (Hud).
 import * as THREE from '../../vendor/three.module.min.js';
-import { RECIPES, REGULARS } from '../config/gameData.js';
+import { RECIPES, REGULARS, DRINKS, ALL_MENU } from '../config/gameData.js';
 import { stoveCount } from '../core/restaurant.js';
 import * as dialogs from '../ui/dialogs.js';
+import { openDrinks } from '../ui/dialogsWorld.js';
 import { Player } from '../render/player.js';
 
 export class RestaurantController {
@@ -13,6 +14,7 @@ export class RestaurantController {
     this.claimed = new Map(); // customerId -> 'waiter'
     this.stoveLabels = view.stoves.map(() => hud.addLabel('wl-stove'));
     this.counterLabel = hud.addLabel('wl-counter');
+    this.barLabel = hud.addLabel('wl-stove');
     this.dirtyLabels = [];
     this.waiter = null;
   }
@@ -34,6 +36,19 @@ export class RestaurantController {
       }
       dialogs.openCook(this.hud, this.game, {
         onCook: (dish) => this.player.walkTo(def.stand, () => this._cook(def, dish)),
+      });
+      return true;
+    }
+    if (def.type === 'drinks') {
+      openDrinks(this.hud, this.game, {
+        onMake: (d) => this.player.walkTo(def.stand, () => {
+          this.player.faceTo(def.anchor);
+          this.player.work();
+          const res = this.game.makeDrink(d);
+          if (!res.ok) return this.hud.toast(res.reason);
+          this.sound('water');
+        }),
+        onPick: (d) => this.player.walkTo(def.stand, () => this._pick(d)),
       });
       return true;
     }
@@ -84,22 +99,24 @@ export class RestaurantController {
     }
     if (!c) return this.hud.toast('Bàn đang trống.');
     if (c.state === 'arriving') return this.hud.toast('Khách đang vào chỗ ngồi…');
-    if (c.state === 'eating') return this.hud.toast('Khách đang ăn ngon lành 😋');
-    if (this.claimed.has(c.id)) return this.hud.toast('Người phục vụ đang bưng món cho bàn này.');
-    // Khách đang chờ món
+    if (this.claimed.has(c.id)) return this.hud.toast('Người phục vụ đang bưng cho bàn này.');
+    const needDrink = c.drink && !c.drinkServed;
+    if (c.state === 'eating' && !needDrink) return this.hud.toast('Khách đang ăn ngon lành 😋');
+    // Đang bưng sẵn thứ gì thì đưa luôn
     if (r.carry) {
       this.player.walkTo(def.stand, () => this._serve(c.id, def));
       return;
     }
-    if (r.counter.includes(c.dish)) {
-      // Tự lấy đúng món trên quầy rồi bưng ra
-      this.player.walkTo(this.view.counter.stand, () => {
-        if (!this._pick(c.dish)) return;
+    // Tự lấy đúng món (hoặc ly nước) trên quầy rồi bưng ra
+    const fetch = (item, stand) =>
+      this.player.walkTo(stand, () => {
+        if (!this._pick(item)) return;
         this.player.walkTo(def.stand, () => this._serve(c.id, def));
       });
-      return;
-    }
-    this.hud.toast(`Khách gọi ${RECIPES[c.dish].icon} ${RECIPES[c.dish].name} nhưng quầy chưa có. Chạm 🔥 bếp để nấu nhé!`);
+    if (c.state === 'waiting' && r.counter.includes(c.dish)) return fetch(c.dish, this.view.counter.stand);
+    if (needDrink && r.drinkCounter.includes(c.drink)) return fetch(c.drink, this.view.drinkBar.stand);
+    if (c.state === 'waiting') return this.hud.toast(`Khách gọi ${RECIPES[c.dish].icon} ${RECIPES[c.dish].name} nhưng quầy chưa có. Chạm 🔥 bếp để nấu nhé!`);
+    this.hud.toast(`Khách muốn uống ${DRINKS[c.drink].icon} ${DRINKS[c.drink].name}. Pha ở 🧋 quầy nước nhé!`);
   }
 
   _cook(def, dish) {
@@ -159,7 +176,10 @@ export class RestaurantController {
         this.sound('bell');
         break;
       case 'served':
-        if (e.wrong) {
+        if (e.drink) {
+          this.sound('pickup');
+          this.hud.floatText(head, '🥤 Mát quá!');
+        } else if (e.wrong) {
           this.sound('wrong');
           this.hud.floatText(head, '🙃 Nhầm món!', 'bad');
         } else {
@@ -184,6 +204,12 @@ export class RestaurantController {
       case 'story':
         this.sound('heart');
         dialogs.openStory(this.hud, e.regular, e.hearts, e.line);
+        break;
+      case 'drinkReady':
+        this.sound('ding');
+        break;
+      case 'chefCook':
+        this.hud.floatText(this.toScreen(this.view.stoves[0].anchor), `👨‍🍳 ${RECIPES[e.dish].icon}`);
         break;
       case 'cooked':
         this.sound('ding');
@@ -214,11 +240,12 @@ export class RestaurantController {
       const reg = c.regular ? REGULARS.find((g) => g.id === c.regular) : null;
       const name = reg ? `<em class="cname">${reg.name} ❤️${s.regulars[reg.id]?.hearts || 0}</em>` : c.vip ? '<em class="cname vip">👑 Khách VIP</em>' : '';
       let html = '';
+      const drink = c.drink && !c.drinkServed ? `<span class="order drink">${DRINKS[c.drink].icon}</span>` : '';
       if (c.state === 'waiting') {
         const f = Math.max(0, c.patience / c.maxPatience);
         const col = f > 0.5 ? 'ok' : f > 0.25 ? 'mid' : 'low';
-        html = `${name}<span class="order">${RECIPES[c.dish].icon}</span><i class="pat ${col}"><b style="width:${Math.round(f * 100)}%"></b></i>`;
-      } else if (c.state === 'eating') html = `${name}<span class="order">${c.wrong ? '😕' : '😋'}</span>`;
+        html = `${name}<span class="orders"><span class="order">${RECIPES[c.dish].icon}</span>${drink}</span><i class="pat ${col}"><b style="width:${Math.round(f * 100)}%"></b></i>`;
+      } else if (c.state === 'eating') html = `${name}<span class="orders"><span class="order">${c.wrong ? '😕' : '😋'}</span>${drink}</span>`;
       else if (c.state === 'arriving') html = name || '';
       else html = c.sat === 0 ? '<span class="order">😠</span>' : c.sat >= 75 ? '<span class="order">😍</span>' : '';
       if (el._html !== html) {
@@ -248,6 +275,14 @@ export class RestaurantController {
       el.classList.toggle('none', !html);
       this.hud.placeLabel(el, html ? this.toScreen(def.anchor) : null);
     });
+    // Quầy nước
+    const dm = r.drinkMaking;
+    const bh = dm ? `${DRINKS[dm.drink].icon}<i class="bar"><b style="width:${Math.round((dm.t / dm.total) * 100)}%"></b></i>` : r.drinkCounter.map((d) => DRINKS[d].icon).join('') || '🧋';
+    if (this.barLabel._html !== bh) {
+      this.barLabel.innerHTML = bh;
+      this.barLabel._html = bh;
+    }
+    this.hud.placeLabel(this.barLabel, this.toScreen(this.view.drinkBar.anchor));
     // Quầy
     const ch = r.counter.length ? r.counter.map((d) => RECIPES[d].icon).join('') : '';
     if (this.counterLabel._html !== ch) {
@@ -287,17 +322,20 @@ export class RestaurantController {
     const r = s.restaurant;
     // Ưu tiên bưng món cho khách đang chờ, sau đó dọn bàn
     const c = r.customers.find((x) => x.state === 'waiting' && !this.claimed.has(x.id) && r.counter.includes(x.dish));
-    if (c) {
-      this.claimed.set(c.id, 'waiter');
+    const cd = !c && r.customers.find((x) => (x.state === 'waiting' || x.state === 'eating') && x.drink && !x.drinkServed && !this.claimed.has(x.id) && r.drinkCounter.includes(x.drink));
+    const target = c || cd;
+    if (target) {
+      const item = c ? c.dish : cd.drink;
+      const from = c ? this.view.counter.stand.clone().add(new THREE.Vector3(0.6, 0, 0)) : this.view.drinkBar.stand;
+      this.claimed.set(target.id, 'waiter');
       this.waiterBusy = true;
-      const def = this.view.tables[c.table].def;
-      w.walkTo(this.view.counter.stand.clone().add(new THREE.Vector3(0.6, 0, 0)), () => {
+      const def = this.view.tables[target.table].def;
+      w.walkTo(from, () => {
         w.work();
         w.walkTo(def.stand, () => {
           w.work();
-          const cur = r.customers.find((x) => x.id === c.id);
-          if (cur && cur.state === 'waiting') this.game.serve(c.id, c.dish, true);
-          this.claimed.delete(c.id);
+          if (r.customers.some((x) => x.id === target.id)) this.game.serve(target.id, item, true);
+          this.claimed.delete(target.id);
           this.waiterBusy = false;
         });
       });

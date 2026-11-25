@@ -12,6 +12,18 @@ export const ITEMS = {
   trung:  { name: 'Trứng gà',  icon: '🥚', sellPrice: 7 },
   ca:     { name: 'Cá',        icon: '🐟', sellPrice: 10, buyPrice: 14 }, // mua ở chợ hoặc câu ở ao
   phan:   { name: 'Phân bón',  icon: '🧪', sellPrice: 2, buyPrice: 5, tool: true }, // dùng với công cụ Bón
+  // GĐ7: cây mới, trái cây, sản phẩm vật nuôi
+  dau:    { name: 'Đậu xanh',  icon: '🫘', sellPrice: 7 },
+  bi:     { name: 'Bí đỏ',     icon: '🎃', sellPrice: 12 },
+  ot:     { name: 'Ớt',        icon: '🌶️', sellPrice: 5 },
+  mia:    { name: 'Mía',       icon: '🎋', sellPrice: 9 },
+  xoai:   { name: 'Xoài',      icon: '🥭', sellPrice: 14 },
+  chuoi:  { name: 'Chuối',     icon: '🍌', sellPrice: 8 },
+  thit:   { name: 'Thịt heo',  icon: '🥩', sellPrice: 22 },
+  sua:    { name: 'Sữa bò',    icon: '🥛', sellPrice: 10 },
+  // GĐ6: nguyên liệu đồ uống mua ở tiệm tạp hoá
+  tra:    { name: 'Lá trà',    icon: '🍃', sellPrice: 1, buyPrice: 2, shop: 'taphoa' },
+  caphe:  { name: 'Cà phê',    icon: '🫖', sellPrice: 3, buyPrice: 6, shop: 'taphoa' },
 };
 
 // ---------- Mùa (mỗi mùa 7 ngày) ----------
@@ -30,8 +42,12 @@ export const CROPS = {
   cachua: { name: 'Cà chua',   icon: '🍅', seedPrice: 7, growTime: 50, harvestItem: 'cachua', harvestAmount: 2, seasons: [0, 1] },
   lua:    { name: 'Lúa',       icon: '🌾', seedPrice: 9, growTime: 70, harvestItem: 'lua',    harvestAmount: 3, seasons: [1, 2] },
   cai:    { name: 'Cải bẹ',    icon: '🥦', seedPrice: 5, growTime: 40, harvestItem: 'cai',    harvestAmount: 2, seasons: [3, 0] },
+  dau:    { name: 'Đậu xanh',  icon: '🫘', seedPrice: 6, growTime: 45, harvestItem: 'dau',    harvestAmount: 3, seasons: [1, 2] },
+  bi:     { name: 'Bí đỏ',     icon: '🎃', seedPrice: 10, growTime: 80, harvestItem: 'bi',    harvestAmount: 2, seasons: [2, 3] },
+  ot:     { name: 'Ớt',        icon: '🌶️', seedPrice: 4, growTime: 35, harvestItem: 'ot',     harvestAmount: 3, seasons: [0, 1] },
+  mia:    { name: 'Mía',       icon: '🎋', seedPrice: 8, growTime: 90, harvestItem: 'mia',    harvestAmount: 4, seasons: [1, 2, 3] },
 };
-export const CROP_ORDER = ['rau', 'cachua', 'lua', 'cai'];
+export const CROP_ORDER = ['rau', 'cachua', 'lua', 'cai', 'dau', 'bi', 'ot', 'mia'];
 export const CROP_STAGES = [0, 0.15, 0.5, 1]; // hạt -> mầm -> cây non -> chín
 export const FERTILIZER_BOOST = 1.6; // ô đã bón phân lớn nhanh gấp 1.6
 
@@ -66,7 +82,8 @@ export const TOOLS = [
 ];
 
 // ---------- Ruộng ----------
-export const FARM = { cells: 9, startOpen: 6, unlockPrices: [30, 45, 60] };
+// Lô 1: 9 ô (6 mở sẵn, 3 ô mua lẻ). Lô 2: 9 ô mua một lần qua nâng cấp "lot2" (cần mở hết lô 1).
+export const FARM = { cells: 9, startOpen: 6, unlockPrices: [30, 45, 60], lot2Cells: 9 };
 
 // ---------- Món ăn ----------
 // unlock: giá mở trong Sổ công thức (0 = có sẵn), level: cấp quán tối thiểu
@@ -79,13 +96,41 @@ export const RECIPES = {
   comchien:  { name: 'Cơm chiên trứng',   icon: '🍛', ingredients: { lua: 1, trung: 2 },              price: 52, cookTime: 5, unlock: 100, level: 2 },
   cakho:     { name: 'Cá kho tộ',         icon: '🥘', ingredients: { ca: 2 },                         price: 60, cookTime: 6, unlock: 120, level: 2 },
   banhxeo:   { name: 'Bánh xèo',          icon: '🥞', ingredients: { lua: 1, trung: 1, rau: 1, cachua: 1 }, price: 85, cookTime: 7, unlock: 180, level: 3 },
+  // GĐ7: món từ cây, trái và vật nuôi mới
+  canhbi:    { name: 'Canh bí đỏ',        icon: '🍵', ingredients: { bi: 2 },                         price: 40, cookTime: 4, unlock: 60,  level: 1 },
+  chuoinuong:{ name: 'Chuối nướng',       icon: '🍢', ingredients: { chuoi: 2 },                      price: 36, cookTime: 3, unlock: 80,  level: 2 },
+  dausotca:  { name: 'Đậu sốt cà',        icon: '🥫', ingredients: { dau: 2, cachua: 1 },             price: 48, cookTime: 5, unlock: 90,  level: 2 },
+  canuong:   { name: 'Cá nướng muối ớt',  icon: '🐠', ingredients: { ca: 1, ot: 1 },                  price: 70, cookTime: 6, unlock: 140, level: 2 },
+  banhflan:  { name: 'Bánh flan',         icon: '🍮', ingredients: { trung: 2, sua: 1 },              price: 58, cookTime: 5, unlock: 160, level: 3 },
+  thitkho:   { name: 'Thịt kho trứng',    icon: '🍖', ingredients: { thit: 1, trung: 2 },             price: 95, cookTime: 8, unlock: 220, level: 3 },
+  // GĐ8: món sự kiện (tự biết trong ngày lễ, bán giá cao)
+  banhchung: { name: 'Bánh chưng',        icon: '🟩', ingredients: { lua: 2, dau: 1, thit: 1 },       price: 120, cookTime: 9, unlock: 0, level: 1, event: 'tet' },
+  banhtrungthu: { name: 'Bánh trung thu', icon: '🥮', ingredients: { lua: 1, trung: 1, dau: 1 },      price: 90, cookTime: 7, unlock: 0, level: 1, event: 'trungthu' },
 };
-export const RECIPE_ORDER = ['rauxao', 'trungchien', 'canhchua', 'comphan', 'canhcai', 'comchien', 'cakho', 'banhxeo'];
+export const RECIPE_ORDER = ['rauxao', 'trungchien', 'canhchua', 'comphan', 'canhcai', 'canhbi', 'comchien', 'cakho', 'chuoinuong', 'dausotca', 'canuong', 'banhxeo', 'banhflan', 'thitkho', 'banhchung', 'banhtrungthu'];
+
+// ---------- Đồ uống (GĐ6): pha ở quầy nước, nhanh, khách gọi kèm món ----------
+export const DRINKS = {
+  trada:   { name: 'Trà đá',          icon: '🧋', ingredients: { tra: 1 },          price: 8,  makeTime: 1.5, unlock: 0,   level: 1 },
+  chedau:  { name: 'Chè đậu xanh',    icon: '🥤', ingredients: { dau: 2 },          price: 20, makeTime: 2,   unlock: 60,  level: 1 },
+  nuocmia: { name: 'Nước mía',        icon: '🍹', ingredients: { mia: 1 },          price: 16, makeTime: 2,   unlock: 40,  level: 1 },
+  caphe:   { name: 'Cà phê sữa đá',   icon: '☕', ingredients: { caphe: 1, sua: 1 }, price: 24, makeTime: 2,   unlock: 90,  level: 2 },
+  sinhto:  { name: 'Sinh tố xoài',    icon: '🥭', ingredients: { xoai: 1, sua: 1 },  price: 30, makeTime: 2.5, unlock: 120, level: 3 },
+};
+export const DRINK_ORDER = ['trada', 'chedau', 'nuocmia', 'caphe', 'sinhto'];
+// Món + đồ uống dùng chung một bảng tra (id không trùng nhau)
+export const ALL_MENU = { ...RECIPES, ...DRINKS };
 
 // ---------- Quán ----------
 export const RESTAURANT = {
   startTables: 3,
-  maxTables: 6,
+  maxTables: 8,           // 6 trong quán + 2 ngoài sân
+  drinkChance: 0.45,      // khả năng khách gọi kèm đồ uống (nếu đã biết pha)
+  drinkTipBonus: 0.25,    // đưa đủ nước: tip thêm 25%
+  drinkSat: 8,            // và +8 hài lòng
+  drinkMax: 4,            // số ly để sẵn tối đa trên quầy nước
+  renovateSat: 5,         // mỗi bậc sửa quán +5 hài lòng
+  orderMax: 2,            // số đơn đặt trước cùng lúc
   counterMax: 6,          // số món để sẵn trên quầy
   menuSize: (level) => Math.min(5, 2 + Math.ceil(level / 2)), // số món tối đa trong thực đơn
   spawnEvery: 12,         // giây giữa 2 lượt khách (cấp 1)
@@ -106,14 +151,35 @@ export const REPUTATION_LEVELS = [0, 60, 170, 340, 600, 950];
 // ---------- Nâng cấp ----------
 // Mỗi nâng cấp có nhiều bậc: prices[i] là giá bậc i+1, level là cấp quán tối thiểu cho từng bậc
 export const UPGRADES = [
-  { id: 'tables',    group: 'quan', icon: '🪑', name: 'Thêm bàn',          desc: 'Thêm 1 bàn cho khách mỗi bậc.',                prices: [80, 150, 260], level: [1, 2, 3] },
+  { id: 'tables',    group: 'quan', icon: '🪑', name: 'Thêm bàn',          desc: 'Thêm 1 bàn mỗi bậc (bậc 4-5 là bàn ngoài sân).', prices: [80, 150, 260, 380, 520], level: [1, 2, 3, 4, 4] },
+  { id: 'renovate',  group: 'quan', icon: '🏗️', name: 'Sửa quán',          desc: 'Quán lá → quán gỗ → nhà gạch. +5 hài lòng mỗi bậc.', prices: [300, 700], level: [2, 4] },
+  { id: 'chef',      group: 'quan', icon: '👨‍🍳', name: 'Thuê đầu bếp',      desc: 'Tự nấu món khách đang chờ (nếu đủ nguyên liệu).', prices: [320], level: [3] },
   { id: 'fastStove', group: 'quan', icon: '🔥', name: 'Bếp lửa to',        desc: 'Nấu nhanh hơn 25% mỗi bậc.',                    prices: [90, 200],      level: [1, 2] },
   { id: 'stove2',    group: 'quan', icon: '🍳', name: 'Bếp thứ hai',       desc: 'Nấu 2 món cùng lúc.',                          prices: [220],          level: [2] },
   { id: 'waiter',    group: 'quan', icon: '🧑‍🍳', name: 'Thuê người phục vụ', desc: 'Tự bưng món có sẵn trên quầy và dọn bàn.',   prices: [250],          level: [2] },
   { id: 'bigCan',    group: 'trai', icon: '🚿', name: 'Bình tưới lớn',     desc: 'Tưới một lần cả hàng 3 ô.',                    prices: [70],           level: [1] },
   { id: 'chickens',  group: 'trai', icon: '🐔', name: 'Thêm gà',           desc: 'Thêm 1 con gà đẻ trứng mỗi bậc.',              prices: [60, 120],      level: [1, 2] },
   { id: 'gardener',  group: 'trai', icon: '👨‍🌾', name: 'Thuê người làm vườn', desc: 'Mỗi sáng tự tưới mọi ô đang có cây.',      prices: [180],          level: [2] },
+  { id: 'lot2',      group: 'trai', icon: '🗺️', name: 'Lô ruộng thứ hai',  desc: 'Thêm 9 ô đất (cần mở hết lô 1).',              prices: [400],          level: [3] },
+  { id: 'ducks',     group: 'trai', icon: '🦆', name: 'Nuôi vịt',          desc: 'Vịt bơi ở ao, đẻ thêm trứng vào chuồng.',     prices: [80, 140],      level: [1, 2] },
+  { id: 'pigpen',    group: 'trai', icon: '🐖', name: 'Chuồng heo',        desc: 'Cho heo ăn rau/bí/cải mỗi ngày → có thịt.',  prices: [150],          level: [2] },
+  { id: 'cowshed',   group: 'trai', icon: '🐄', name: 'Chuồng bò sữa',     desc: 'Cho bò ăn lúa mỗi ngày → có sữa.',           prices: [220],          level: [2] },
 ];
+
+// ---------- Vật nuôi cần cho ăn (GĐ7) ----------
+// Cho ăn trong ngày -> sáng hôm sau có sản phẩm. Vuốt ve đủ 5 lần -> thêm 1 sản phẩm mỗi ngày.
+export const ANIMALS = {
+  pig: { name: 'Heo', icon: '🐖', upgrade: 'pigpen', food: ['rau', 'bi', 'cai'], product: 'thit', amount: 1 },
+  cow: { name: 'Bò sữa', icon: '🐄', upgrade: 'cowshed', food: ['lua'], product: 'sua', amount: 2 },
+};
+export const PET_LOVE_BONUS = 5;
+
+// ---------- Vườn cây ăn trái (GĐ7) ----------
+export const TREES = {
+  xoai:  { name: 'Cây xoài',  icon: '🥭', saplingPrice: 40, growDays: 2, fruit: 'xoai',  amount: 2 },
+  chuoi: { name: 'Cây chuối', icon: '🍌', saplingPrice: 30, growDays: 1, fruit: 'chuoi', amount: 3 },
+};
+export const ORCHARD_SLOTS = 3;
 
 // ---------- Trang trí (mua 1 lần, tăng hài lòng + tip) ----------
 export const DECOR = [
@@ -138,12 +204,48 @@ export const REGULARS = [
 ];
 export const REGULAR_CHANCE = 0.35; // khả năng mỗi lượt khách là khách quen (nếu món ưa thích có trong thực đơn)
 
+// ---------- Trang trí vườn đặt tự do (GĐ9): mua bao nhiêu cũng được, mỗi món +1% hài lòng (tối đa 10%) ----------
+export const GARDEN_DECOR = [
+  { id: 'ghenda',   icon: '🪨', name: 'Ghế đá',      price: 40 },
+  { id: 'dench',    icon: '🏮', name: 'Đèn đá',      price: 50 },
+  { id: 'congtre',  icon: '⛩️', name: 'Cổng tre',    price: 70 },
+  { id: 'chuongchim', icon: '🐦', name: 'Chuồng chim', price: 45 },
+  { id: 'luonuoc',  icon: '🏺', name: 'Lu nước',     price: 35 },
+  { id: 'bonhoa',   icon: '🌷', name: 'Bồn hoa',     price: 30 },
+  { id: 'caytrang', icon: '🌳', name: 'Cây bóng mát', price: 55 },
+];
+export const GARDEN_BONUS_EACH = 0.01;
+export const GARDEN_BONUS_MAX = 0.1;
+
+// ---------- Trang phục & thú cưng (GĐ9) ----------
+export const OUTFITS = {
+  shirts: [
+    { id: 'mint', name: 'Áo bạc hà', color: 0x9fe0c4, price: 0 },
+    { id: 'hong', name: 'Áo hồng', color: 0xf6a6b9, price: 0 },
+    { id: 'vang', name: 'Áo vàng', color: 0xffd34e, price: 40 },
+    { id: 'xanh', name: 'Áo xanh trời', color: 0x9fd6f0, price: 40 },
+    { id: 'tim', name: 'Áo tím', color: 0xc9a7f5, price: 60 },
+    { id: 'babahoa', name: 'Áo bà ba hoa', color: 0xef8fa8, price: 90 },
+  ],
+  hats: [
+    { id: 'nonla', name: 'Nón lá', price: 0 },
+    { id: 'khong', name: 'Không đội', price: 0 },
+    { id: 'murom', name: 'Mũ rơm', price: 50 },
+    { id: 'khanran', name: 'Khăn rằn', price: 80 },
+  ],
+  hair: [0x3a2a20, 0x6b4a2e, 0x1f1f2a, 0xb07a4a],
+};
+export const PETS = {
+  cho: { name: 'Chó vàng', icon: '🐕', price: 120 },
+  meo: { name: 'Mèo mướp', icon: '🐈', price: 120 },
+};
+
 // ---------- Câu cá ----------
 export const FISHING = { fishPerDay: 4, zoneWidth: 0.22, speed: 1.3 };
 
 // ---------- Bắt đầu game mới ----------
 export const START = {
   money: 40,
-  seeds: { rau: 4, cachua: 2, lua: 0, cai: 0 },
-  items: { rau: 0, cachua: 1, lua: 1, cai: 0, trung: 2, ca: 1, phan: 2 },
+  seeds: { rau: 4, cachua: 2, lua: 0, cai: 0, dau: 0, bi: 0, ot: 0, mia: 0 },
+  items: { rau: 0, cachua: 1, lua: 1, cai: 0, trung: 2, ca: 1, phan: 2, tra: 3 },
 };

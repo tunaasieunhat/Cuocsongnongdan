@@ -273,6 +273,56 @@ export class Models {
       });
       return g;
     }
+    if (type === 'dau' || type === 'ot') {
+      // Bụi thấp, chín thì có trái (đậu: quả xanh dài, ớt: quả đỏ)
+      const r = [0, 0.15, 0.25, 0.3][stage];
+      [[-0.42, -0.42], [0.42, 0.42], [-0.42, 0.42], [0.42, -0.42]].forEach(([sx, sz], i) => {
+        const b = this.mesh(new THREE.IcosahedronGeometry(r, 0), type === 'dau' ? 0x7fbf5a : 0x6fae4a);
+        b.position.set(sx, 0.3 + r, sz);
+        b.scale.y = 0.8;
+        g.add(b);
+        if (stage === 3) {
+          for (let k = 0; k < 3; k++) {
+            const pod = this.mesh(new THREE.ConeGeometry(0.04, 0.22, 4), type === 'dau' ? 0x5fa83a : 0xe8392e);
+            const a = k * 2.1 + i;
+            pod.position.set(sx + Math.cos(a) * r * 0.9, 0.35 + r * 0.8, sz + Math.sin(a) * r * 0.9);
+            pod.rotation.x = Math.PI;
+            g.add(pod);
+          }
+        }
+      });
+      return g;
+    }
+    if (type === 'bi') {
+      // Dây bí bò trên đất, chín thì có quả bí cam to
+      const n = [0, 2, 4, 6][stage];
+      for (let k = 0; k < n; k++) {
+        const leaf = this.mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.04, 6), 0x6fae4a);
+        leaf.position.set(Math.cos(k * 1.3) * 0.5, 0.33, Math.sin(k * 1.3) * 0.5);
+        leaf.rotation.x = 0.3;
+        g.add(leaf);
+      }
+      if (stage >= 2) {
+        const pump = this.mesh(new THREE.SphereGeometry(stage === 3 ? 0.32 : 0.16, 8, 6), stage === 3 ? 0xf29a3a : 0x9ccf4a);
+        pump.scale.y = 0.75;
+        pump.position.set(0.05, 0.5, 0);
+        g.add(pump);
+      }
+      return g;
+    }
+    if (type === 'mia') {
+      // Mía: thân cao có đốt
+      const h = [0, 0.4, 0.9, 1.4][stage];
+      [[-0.45, -0.45], [0.45, -0.45], [-0.45, 0.45], [0.45, 0.45], [0, 0]].forEach(([sx, sz]) => {
+        const st = this.mesh(new THREE.CylinderGeometry(0.05, 0.06, h, 5), stage === 3 ? 0x8a6a9c : 0x9cbf5a);
+        st.position.set(sx, 0.3 + h / 2, sz);
+        const lf = this.mesh(new THREE.ConeGeometry(0.06, 0.6, 3), 0x76ad6c);
+        lf.position.set(sx + 0.15, 0.3 + h, sz);
+        lf.rotation.z = -0.8;
+        g.add(st, lf);
+      });
+      return g;
+    }
     return g;
   }
 
@@ -363,8 +413,25 @@ export class Models {
     return g;
   }
 
-  farmer() {
-    return this.person({ shirt: this.p.shirt, pants: this.p.pants, skin: this.p.skin, hat: this.p.hat });
+  // Nông dân theo trang phục: { shirt: màu, hat: 'nonla'|'murom'|'khanran'|'khong', hair: màu }
+  farmer(outfit = null) {
+    if (!outfit) return this.person({ shirt: this.p.shirt, pants: this.p.pants, skin: this.p.skin, hat: this.p.hat });
+    const g = this.person({ shirt: outfit.shirt, pants: this.p.pants, skin: this.p.skin, hat: outfit.hat === 'nonla' ? this.p.hat : null, hair: outfit.hat === 'nonla' ? null : outfit.hair });
+    if (outfit.hat === 'murom') {
+      const brim = this.mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.04, 14), 0xf1d48a);
+      brim.position.y = 1.4;
+      const crown = this.mesh(new THREE.CylinderGeometry(0.24, 0.27, 0.22, 12), 0xf1d48a);
+      crown.position.y = 1.52;
+      const band = this.mesh(new THREE.CylinderGeometry(0.275, 0.275, 0.06, 12), 0xef8fa8);
+      band.position.y = 1.45;
+      g.add(brim, crown, band);
+    } else if (outfit.hat === 'khanran') {
+      const band = this.mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.12, 10), 0x2f3b5c);
+      band.position.y = 1.32;
+      const knot = this.box(0.1, 0.18, 0.04, 0x2f3b5c, 0.18, 1.25, -0.25);
+      g.add(band, knot);
+    }
+    return g;
   }
 
   customer(i = 0) {
@@ -702,5 +769,286 @@ export class Models {
       g.add(st);
     });
     return g;
+  }
+  // ---------- GĐ6-9: vật nuôi, vườn, làng, thú cưng, trang trí ----------
+
+  pig() {
+    const g = new THREE.Group();
+    const body = this.mesh(new THREE.IcosahedronGeometry(0.45, 1), 0xf7b8c4);
+    body.scale.set(1, 0.85, 1.3);
+    body.position.y = 0.5;
+    const head = this.mesh(new THREE.IcosahedronGeometry(0.3, 1), 0xf7b8c4);
+    head.position.set(0, 0.62, 0.55);
+    const snout = this.mesh(new THREE.CylinderGeometry(0.12, 0.13, 0.1, 8), 0xf29bb0);
+    snout.rotation.x = Math.PI / 2;
+    snout.position.set(0, 0.58, 0.84);
+    [[-0.15, 0.85], [0.15, 0.85]].forEach(([x, y]) => {
+      const ear = this.mesh(new THREE.ConeGeometry(0.08, 0.16, 4), 0xf29bb0);
+      ear.position.set(x, y, 0.5);
+      g.add(ear);
+    });
+    [[-0.22, -0.35], [0.22, -0.35], [-0.22, 0.35], [0.22, 0.35]].forEach(([x, z]) => g.add(this.box(0.12, 0.25, 0.12, 0xf29bb0, x, 0.12, z)));
+    g.add(body, head, snout);
+    return g;
+  }
+
+  cow() {
+    const g = new THREE.Group();
+    const body = this.box(0.7, 0.6, 1.3, 0xffffff, 0, 0.85, 0);
+    const spot = this.box(0.72, 0.3, 0.4, 0x4a3a32, 0, 0.95, -0.2);
+    const head = this.box(0.42, 0.42, 0.45, 0xffffff, 0, 1.1, 0.8);
+    const nose = this.box(0.36, 0.2, 0.12, 0xf6b8b0, 0, 0.98, 1.05);
+    [[-0.16], [0.16]].forEach(([x]) => {
+      const horn = this.mesh(new THREE.ConeGeometry(0.05, 0.18, 5), 0xf6e7c6);
+      horn.position.set(x, 1.38, 0.8);
+      g.add(horn);
+    });
+    [[-0.25, -0.45], [0.25, -0.45], [-0.25, 0.45], [0.25, 0.45]].forEach(([x, z]) => g.add(this.box(0.14, 0.55, 0.14, 0xffffff, x, 0.28, z)));
+    g.add(body, spot, head, nose);
+    return g;
+  }
+
+  duck() {
+    const g = new THREE.Group();
+    const body = this.mesh(new THREE.IcosahedronGeometry(0.2, 0), 0xffffff);
+    body.scale.set(1, 0.7, 1.3);
+    body.position.y = 0.12;
+    const head = this.mesh(new THREE.IcosahedronGeometry(0.12, 0), 0x4f9e6a);
+    head.position.set(0, 0.32, 0.18);
+    const beak = this.box(0.08, 0.04, 0.12, 0xffa62b, 0, 0.3, 0.32);
+    g.add(body, head, beak);
+    return g;
+  }
+
+  // Chuồng có rào vuông (dùng cho heo), có máng ăn
+  pen(size = 3.2) {
+    const g = new THREE.Group();
+    const mud = this.box(size - 0.2, 0.04, size - 0.2, 0xb08a6a, 0, 0.03, 0);
+    mud.castShadow = false;
+    g.add(mud);
+    g.add(this.fence(size, 0, -size / 2), this.fence(size, -size / 2, 0, Math.PI / 2), this.fence(size, size / 2, 0, Math.PI / 2));
+    g.add(this.fence(size * 0.35, -size * 0.32, size / 2), this.fence(size * 0.35, size * 0.32, size / 2));
+    g.add(this.trough(0.6, size / 2 - 0.4));
+    return g;
+  }
+
+  trough(x = 0, z = 0) {
+    const g = new THREE.Group();
+    g.add(this.box(1.0, 0.25, 0.4, this.p.woodDark, 0, 0.12, 0));
+    const food = this.box(0.85, 0.05, 0.28, 0x9ccf4a, 0, 0.26, 0);
+    food.visible = false;
+    g.add(food);
+    g.userData.food = food;
+    g.position.set(x, 0, z);
+    return g;
+  }
+
+  // Chuồng bò: mái che + rào
+  shed() {
+    const g = this.pen(3.6);
+    [[-1.5, -1.5], [1.5, -1.5], [-1.5, 0], [1.5, 0]].forEach(([x, z]) => g.add(this.box(0.14, 2.0, 0.14, this.p.woodDark, x, 1.0, z)));
+    const roof = this.box(3.6, 0.12, 2.2, this.p.roof, 0, 2.05, -0.75);
+    roof.rotation.x = 0.18;
+    g.add(roof);
+    g.add(this.box(1.4, 0.6, 0.8, 0xf1d48a, -1.0, 0.3, -1.2)); // rơm
+    return g;
+  }
+
+  // Cây ăn trái theo giai đoạn: stage 0 = cây giống, 1 = đã lớn; fruit = số trái đang có
+  fruitTree(kind, stage, fruit) {
+    const g = new THREE.Group();
+    const mound = this.mesh(new THREE.CylinderGeometry(0.6, 0.75, 0.15, 8), this.p.soilTilled || this.p.soil);
+    mound.position.y = 0.07;
+    mound.castShadow = false;
+    g.add(mound);
+    if (!kind) return g;
+    const s = stage ? 1 : 0.45;
+    if (kind === 'chuoi') {
+      const trunk = this.mesh(new THREE.CylinderGeometry(0.12, 0.16, 1.4, 6), 0x9cbf5a);
+      trunk.position.y = 0.7;
+      g.add(trunk);
+      for (let i = 0; i < 5; i++) {
+        const leaf = this.box(0.25, 0.04, 1.2, 0x76ad6c, 0, 0, 0.55);
+        const holder = new THREE.Group();
+        holder.add(leaf);
+        holder.position.y = 1.4;
+        holder.rotation.set(-0.5, (i / 5) * Math.PI * 2, 0);
+        g.add(holder);
+      }
+      for (let i = 0; i < Math.min(fruit, 6); i++) {
+        const b = this.mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.25, 5), 0xf5d85a);
+        b.position.set(0.18 + (i % 3) * 0.06, 1.05 - Math.floor(i / 3) * 0.12, 0.05);
+        b.rotation.z = 0.5;
+        g.add(b);
+      }
+    } else {
+      const trunk = this.mesh(new THREE.CylinderGeometry(0.14, 0.2, 1.2, 6), this.p.trunk);
+      trunk.position.y = 0.6;
+      const crown = this.mesh(new THREE.IcosahedronGeometry(0.95, 0), 0x5f9e45);
+      crown.position.y = 1.7;
+      crown.scale.y = 0.85;
+      g.add(trunk, crown);
+      for (let i = 0; i < Math.min(fruit, 6); i++) {
+        const a = i * 1.1;
+        const f = this.mesh(new THREE.IcosahedronGeometry(0.12, 0), 0xffb347);
+        f.scale.y = 1.3;
+        f.position.set(Math.cos(a) * 0.8, 1.45 + (i % 2) * 0.3, Math.sin(a) * 0.8);
+        g.add(f);
+      }
+    }
+    g.children.slice(1).forEach((c) => c.scale.multiplyScalar(s));
+    g.children.slice(1).forEach((c) => (c.position.y *= s));
+    return g;
+  }
+
+  // Tiệm tạp hoá ông Bảy
+  shopBuilding() {
+    const g = new THREE.Group();
+    g.add(this.box(3.4, 0.25, 2.6, this.p.woodDark, 0, 0.12, 0));
+    g.add(this.box(3.2, 1.9, 2.4, 0xfff0d6, 0, 1.2, 0));
+    const roof = this.mesh(new THREE.ConeGeometry(2.6, 1.3, 4), 0x7fb3d5);
+    roof.position.y = 2.8;
+    roof.rotation.y = Math.PI / 4;
+    roof.scale.set(1.05, 1, 0.85);
+    g.add(roof);
+    for (let i = 0; i < 6; i++) {
+      const st = this.box(0.55, 0.08, 0.9, i % 2 ? 0xffffff : 0x7fb3d5, -1.38 + i * 0.55, 2.1, 1.55);
+      st.rotation.x = -0.3;
+      g.add(st);
+    }
+    g.add(this.box(1.6, 0.9, 0.06, 0x9fd6f0, -0.6, 1.1, 1.21));
+    g.add(this.box(0.7, 1.2, 0.06, this.p.woodDark, 1.0, 0.85, 1.21));
+    g.add(this.box(1.8, 0.45, 0.1, this.p.accent, 0, 2.55, 1.25));
+    // Thùng hàng trước tiệm
+    [[-1.3, 1.9, 0xf26d6d], [-0.6, 1.9, 0x7fcf6a], [0.1, 1.95, 0xffd34e]].forEach(([x, z, c]) => {
+      g.add(this.box(0.55, 0.35, 0.45, this.p.wood, x, 0.18, z));
+      g.add(this.box(0.45, 0.1, 0.35, c, x, 0.4, z));
+    });
+    return g;
+  }
+
+  villageHouse(roof = 0xf29bb0, wall = 0xfff3e8) {
+    const g = new THREE.Group();
+    g.add(this.box(2.4, 1.5, 2.0, wall, 0, 0.9, 0));
+    const r = this.mesh(new THREE.ConeGeometry(1.9, 1.1, 4), roof);
+    r.position.y = 2.2;
+    r.rotation.y = Math.PI / 4;
+    r.scale.set(1.05, 1, 0.9);
+    g.add(r, this.box(0.55, 0.9, 0.06, this.p.woodDark, 0.4, 0.6, 1.01), this.box(0.5, 0.45, 0.06, 0x9fd6f0, -0.6, 1.1, 1.01));
+    g.add(this.box(2.6, 0.15, 2.2, this.p.woodDark, 0, 0.08, 0));
+    return g;
+  }
+
+  pier() {
+    const g = new THREE.Group();
+    g.add(this.box(1.6, 0.12, 3.2, this.p.wood, 0, 0.1, 0));
+    [[-0.7, -1.4], [0.7, -1.4], [-0.7, 1.4], [0.7, 1.4]].forEach(([x, z]) => g.add(this.box(0.14, 0.6, 0.14, this.p.woodDark, x, -0.1, z)));
+    const boat = new THREE.Group();
+    boat.add(this.box(1.0, 0.3, 2.4, 0x8a5d43, 0, 0, 0), this.box(0.8, 0.06, 2.0, 0xb98563, 0, 0.14, 0));
+    const roofB = this.mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.0, 8, 1, true, 0, Math.PI), 0xf1d48a);
+    roofB.rotation.set(Math.PI / 2, 0, Math.PI / 2);
+    roofB.position.set(0, 0.2, -0.2);
+    boat.add(roofB);
+    boat.position.set(1.6, -0.25, 0.4);
+    g.add(boat);
+    g.userData.boat = boat;
+    return g;
+  }
+
+  dog() {
+    const g = new THREE.Group();
+    const c = 0xe0b072;
+    const body = this.box(0.3, 0.26, 0.55, c, 0, 0.3, 0);
+    const head = this.box(0.26, 0.24, 0.24, c, 0, 0.48, 0.32);
+    const snout = this.box(0.14, 0.1, 0.12, 0xf6e7c6, 0, 0.42, 0.48);
+    const tail = this.box(0.06, 0.06, 0.25, c, 0, 0.42, -0.35);
+    tail.rotation.x = -0.6;
+    [[-0.1], [0.1]].forEach(([x]) => g.add(this.box(0.07, 0.12, 0.05, 0x9c6b4e, x, 0.63, 0.28)));
+    [[-0.1, -0.18], [0.1, -0.18], [-0.1, 0.18], [0.1, 0.18]].forEach(([x, z]) => g.add(this.box(0.07, 0.18, 0.07, c, x, 0.09, z)));
+    g.add(body, head, snout, tail);
+    g.userData.tail = tail;
+    return g;
+  }
+
+  cat() {
+    const g = new THREE.Group();
+    const c = 0xb5a497;
+    const body = this.box(0.24, 0.22, 0.46, c, 0, 0.26, 0);
+    const head = this.mesh(new THREE.IcosahedronGeometry(0.15, 0), c);
+    head.position.set(0, 0.44, 0.26);
+    [[-0.08], [0.08]].forEach(([x]) => {
+      const ear = this.mesh(new THREE.ConeGeometry(0.05, 0.1, 4), c);
+      ear.position.set(x, 0.58, 0.26);
+      g.add(ear);
+    });
+    const tail = this.box(0.05, 0.05, 0.35, c, 0, 0.45, -0.3);
+    tail.rotation.x = -0.9;
+    [[-0.08, -0.15], [0.08, -0.15], [-0.08, 0.15], [0.08, 0.15]].forEach(([x, z]) => g.add(this.box(0.06, 0.16, 0.06, c, x, 0.08, z)));
+    g.add(body, head, tail);
+    g.userData.tail = tail;
+    return g;
+  }
+
+  // Đồ trang trí vườn đặt tự do
+  gardenDecor(id) {
+    const g = new THREE.Group();
+    const P = this.p;
+    if (id === 'ghenda') {
+      g.add(this.box(1.2, 0.12, 0.45, P.rock, 0, 0.42, 0), this.box(0.18, 0.4, 0.4, P.rock, -0.45, 0.2, 0), this.box(0.18, 0.4, 0.4, P.rock, 0.45, 0.2, 0));
+    } else if (id === 'dench') {
+      g.add(this.box(0.4, 0.15, 0.4, P.rock, 0, 0.07, 0), this.box(0.18, 0.6, 0.18, P.rock, 0, 0.45, 0), this.box(0.4, 0.3, 0.4, P.rock, 0, 0.9, 0));
+      const light = this.box(0.22, 0.16, 0.42, P.lantern, 0, 0.9, 0);
+      light.material = this.mat(P.lantern, { emissive: true });
+      g.add(light);
+      const cap = this.mesh(new THREE.ConeGeometry(0.38, 0.25, 4), P.rock);
+      cap.position.y = 1.17;
+      cap.rotation.y = Math.PI / 4;
+      g.add(cap);
+    } else if (id === 'congtre') {
+      g.add(this.box(0.14, 2.0, 0.14, 0x9cbf5a, -0.9, 1.0, 0), this.box(0.14, 2.0, 0.14, 0x9cbf5a, 0.9, 1.0, 0));
+      g.add(this.box(2.2, 0.14, 0.14, 0x9cbf5a, 0, 2.0, 0), this.box(2.0, 0.1, 0.1, 0x9cbf5a, 0, 1.75, 0));
+    } else if (id === 'chuongchim') {
+      g.add(this.box(0.08, 1.4, 0.08, P.woodDark, 0, 0.7, 0), this.box(0.45, 0.35, 0.4, P.wood, 0, 1.55, 0));
+      const r = this.mesh(new THREE.ConeGeometry(0.4, 0.3, 4), P.roof);
+      r.position.y = 1.86;
+      r.rotation.y = Math.PI / 4;
+      g.add(r);
+    } else if (id === 'luonuoc') {
+      const lu = this.mesh(new THREE.SphereGeometry(0.38, 8, 6), 0xa0603a);
+      lu.position.y = 0.35;
+      lu.scale.y = 1.1;
+      const w = this.mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.04, 8), P.water);
+      w.position.y = 0.74;
+      g.add(lu, w);
+    } else if (id === 'bonhoa') {
+      g.add(this.box(1.2, 0.3, 0.6, P.rock, 0, 0.15, 0));
+      for (let i = 0; i < 5; i++) {
+        const f = this.flower(-0.45 + i * 0.22, 0, i);
+        f.position.y = 0.25;
+        g.add(f);
+      }
+    } else if (id === 'caytrang') {
+      return this.treeRound(0, 0, 0.9);
+    }
+    return g;
+  }
+
+  // Quầy nước: bàn nhỏ với bình trà, ly
+  drinkStation() {
+    const g = new THREE.Group();
+    g.add(this.box(1.1, 0.85, 0.7, this.p.wood, 0, 0.42, 0), this.box(1.2, 0.07, 0.8, this.p.woodDark, 0, 0.88, 0));
+    const jug = this.mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.34, 8), 0xc7ecf7);
+    jug.position.set(-0.3, 1.08, 0);
+    const jug2 = this.mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.3, 8), 0xffd9a0);
+    jug2.position.set(0.05, 1.06, -0.1);
+    g.add(jug, jug2);
+    return g;
+  }
+
+  // Đèn ông sao (Trung thu)
+  starLantern() {
+    const s = this.mesh(new THREE.OctahedronGeometry(0.28, 0), 0xffd34e, { emissive: true });
+    s.scale.z = 0.4;
+    return s;
   }
 }

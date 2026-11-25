@@ -1,7 +1,8 @@
 // Điểm khởi động: nối logic (core) + hiển thị 3D (render) + giao diện (ui) + âm thanh + lưu (save).
 import * as THREE from '../vendor/three.module.min.js';
 import { PALETTES, ACTIVE_PALETTE } from './config/palettes.js';
-import { CROPS, CROP_ORDER, ITEMS, RECIPES, TIME, FARM } from './config/gameData.js';
+import { CROPS, CROP_ORDER, ITEMS, RECIPES, ALL_MENU, TIME, FARM, OUTFITS, TREES, ANIMALS, GARDEN_DECOR, PETS } from './config/gameData.js';
+import { VILLAGERS } from './config/story.js';
 import { TUTORIAL_QUAN_STEPS, TUTORIAL_QUAN_REWARD } from './config/tutorial.js';
 import { Game } from './core/game.js';
 import { migrateState, createNewState } from './core/state.js';
@@ -9,7 +10,7 @@ import { isRipe, nextUnlockPrice } from './core/farm.js';
 import { fishLeft, seasonIndex } from './core/progress.js';
 import { LocalStorageAdapter } from './save/storage.js';
 import { Models } from './render/models.js';
-import { World, SPOTS, LOT } from './render/world.js';
+import { World, SPOTS, LOT, ISLAND } from './render/world.js';
 import { RestaurantView, REST_ORIGIN } from './render/restaurantView.js';
 import { CameraRig } from './render/camera.js';
 import { Player } from './render/player.js';
@@ -17,6 +18,10 @@ import { PointerInput } from './render/input.js';
 import { NavGrid } from './render/pathfinding.js';
 import { Hud } from './ui/hud.js';
 import * as dialogs from './ui/dialogs.js';
+import * as wdialogs from './ui/dialogsWorld.js';
+import { gardenFree } from './core/custom.js';
+import { isGrown } from './core/orchard.js';
+import { initOnline } from './online/onlineUI.js';
 import { Tutorial } from './ui/tutorial.js';
 import { RestaurantController } from './controllers/restaurantController.js';
 import { sound, unlockAudio, setAudioSettings, setMood } from './audio/sound.js';
@@ -28,6 +33,7 @@ async function start() {
   const saved = await storage.load();
   const game = new Game(saved ? migrateState(saved) : createNewState());
   const S = () => game.state;
+  game.ensureDaily();
 
   // ---- Renderer ----
   const app = document.getElementById('app');
@@ -47,17 +53,92 @@ async function start() {
   world.syncChickens(S().coop.timers.length);
   world.setSeason(seasonIndex(S().day));
   world.setRain(!!S().weather?.rain);
+  world.syncOrchard(S().orchard);
+  world.syncAnimals(S());
+  world.setEvent(game.event?.id);
   const restView = new RestaurantView(world, models);
   restView.syncTables(S());
   restView.syncDecor(S());
 
   const makeNav = () => new NavGrid(world.obstacles);
-  const farmerMesh = models.farmer();
+  // Nông dân mặc trang phục đã chọn
+  const outfitOf = (c) => ({
+    shirt: (OUTFITS.shirts.find((x) => x.id === c.outfit.shirt) || OUTFITS.shirts[0]).color,
+    hat: c.outfit.hat,
+    hair: OUTFITS.hair[c.outfit.hair] ?? OUTFITS.hair[0],
+  });
+  const farmerMesh = models.farmer(outfitOf(S().custom));
   farmerMesh.position.copy(SPOTS.playerStart);
   farmerMesh.rotation.y = Math.PI;
   world.scene.add(farmerMesh);
   const player = new Player(farmerMesh, world.obstacles, makeNav());
   restView.navDirty = false;
+  const rebuildFarmer = () => {
+    const old = player.mesh;
+    const m = models.farmer(outfitOf(S().custom));
+    m.position.copy(old.position);
+    m.rotation.copy(old.rotation);
+    world.scene.remove(old);
+    world.scene.add(m);
+    player.mesh = m;
+    player.pos = m.position;
+  };
+
+  // Thú cưng đi theo (GĐ9)
+  let pet = null;
+  const syncPet = () => {
+    const id = S().custom.pets.active;
+    if (pet?.id === id) return;
+    if (pet) world.scene.remove(pet.mesh);
+    pet = null;
+    if (!id) return;
+    const mesh = id === 'cho' ? models.dog() : models.cat();
+    mesh.position.copy(player.pos).add(new THREE.Vector3(-0.8, 0, -0.8));
+    world.scene.add(mesh);
+    pet = { id, mesh, walkT: 0 };
+  };
+  syncPet();
+  const updatePet = (dt, time) => {
+    if (!pet) return;
+    const m = pet.mesh;
+    const back = new THREE.Vector3(Math.sin(player.mesh.rotation.y + 2.4), 0, Math.cos(player.mesh.rotation.y + 2.4)).multiplyScalar(0.9);
+    const goal = player.pos.clone().add(back);
+    const d = goal.distanceTo(m.position);
+    if (d > 0.2) {
+      const dir = goal.clone().sub(m.position).normalize();
+      m.position.addScaledVector(dir, Math.min(d, dt * (d > 2 ? 6 : 3.6)));
+      m.rotation.y = Math.atan2(dir.x, dir.z);
+      m.position.y = Math.abs(Math.sin(time * 14)) * 0.05;
+    } else m.position.y = 0;
+    if (m.userData.tail) m.userData.tail.rotation.y = Math.sin(time * 10) * 0.5;
+  };
+
+  // Đồ trang trí vườn đặt tự do (GĐ9)
+  const gardenMeshes = [];
+  const syncGarden = () => {
+    gardenMeshes.forEach((m) => world.scene.remove(m));
+    gardenMeshes.length = 0;
+    S().custom.garden.placed.forEach((p, i) => {
+      const m = models.gardenDecor(p.id);
+      m.position.set(p.x, 0, p.z);
+      m.rotation.y = (p.rot * Math.PI) / 2;
+      m.userData.gardenIndex = i;
+      world.scene.add(m);
+      gardenMeshes.push(m);
+    });
+  };
+  syncGarden();
+
+  // ---- Đồ hoạ (GĐ5): nhẹ = không bóng đổ + độ nét 1x; tự động hạ khi máy chậm ----
+  let autoLow = false;
+  const applyGraphics = () => {
+    const g = S().settings.graphics;
+    const low = g === 'low' || (g === 'auto' && autoLow);
+    renderer.setPixelRatio(low ? 1 : Math.min(devicePixelRatio, 1.75));
+    renderer.setSize(innerWidth, innerHeight);
+    world.sun.castShadow = !low;
+    hud.fpsEl.hidden = !S().settings.fps;
+  };
 
   // ---- Camera ----
   const rig = new CameraRig();
@@ -108,8 +189,13 @@ async function start() {
       if (id === 'bag') dialogs.openBag(hud, game);
       if (id === 'recipes') dialogs.openRecipes(hud, game);
       if (id === 'upgrades') dialogs.openUpgrades(hud, game);
+      if (id === 'quests') wdialogs.openQuests(hud, game);
+      if (id === 'garden') toggleDecorMode();
+      if (id === 'customize') wdialogs.openCustomize(hud, game, { onChange: () => (rebuildFarmer(), (dirty = true)) });
       if (id === 'settings')
         dialogs.openSettings(hud, game, {
+          onGraphics: () => (applyGraphics(), (dirty = true)),
+          onOnline: () => online.open(),
           onAudio: () => (applyAudio(), (dirty = true)),
           onReplay: () => (clearJobs(), tutorial.start(true)),
           onReplayQuan: () => tutorialQuan.start(true),
@@ -127,7 +213,7 @@ async function start() {
       game.openRestaurant();
     },
     dropCarry: () => restCtl.dropCarry(),
-    dishName: (d) => `${RECIPES[d].icon} ${RECIPES[d].name}`,
+    dishName: (d) => `${ALL_MENU[d].icon} ${ALL_MENU[d].name}`,
   });
   hud.render(S(), game);
 
@@ -137,7 +223,7 @@ async function start() {
   });
 
   // ---- Nhãn trên vật thể ----
-  const LABELED = new Set(['plot', 'coop', 'market', 'restaurant', 'pond']);
+  const LABELED = new Set(['plot', 'coop', 'market', 'restaurant', 'pond', 'tree', 'pen', 'shop', 'npc']);
   const labelFor = new Map();
   const labelOf = (def) => {
     if (!LABELED.has(def.type)) return null;
@@ -146,13 +232,16 @@ async function start() {
       el = hud.addLabel('wl-' + def.type);
       labelFor.set(def, el);
       if (def.type === 'market') el.innerHTML = '🛒 Chợ quê<small>Mua hạt · bán nông sản</small>';
+      if (def.type === 'shop') el.innerHTML = '🏪 Tạp hoá ông Bảy<small>Trà · cà phê · cây giống · trang trí</small>';
+      if (def.type === 'npc') el.innerHTML = `${VILLAGERS.find((v) => v.id === def.id).name}<small>💬 chạm để trò chuyện</small>`;
     }
     return el;
   };
   const plates = world.nameplates.map((n) => {
     const el = hud.addLabel('wl-sign');
-    el.innerHTML = n.text;
-    return { el, anchor: n.anchor };
+    el.innerHTML = n.text + (n.lot2Plate ? '<small>mua ở 🔨 Nâng cấp</small>' : '');
+    if (n.lot2Plate) el.hidden = !!S().upgrades.lot2;
+    return { el, anchor: n.anchor, lot2Plate: n.lot2Plate };
   });
 
   const refreshLabels = () => {
@@ -163,7 +252,10 @@ async function start() {
       if (def.type === 'plot') {
         const plot = s.plots[def.index];
         el.className = 'wlabel wl-plot';
-        if (!plot) {
+        if (!plot && def.lot2) {
+          el.innerHTML = '';
+          el.classList.add('none');
+        } else if (!plot) {
           const next = def.index === s.plots.length;
           el.innerHTML = next ? `🔒 ${nextUnlockPrice(s)} xu` : '🔒';
           el.classList.add('lock');
@@ -186,6 +278,27 @@ async function start() {
         el.innerHTML = n ? `🥚 ×${n}` : '';
         el.classList.toggle('none', !n);
         el.classList.toggle('ripe', n > 0);
+      } else if (def.type === 'tree') {
+        const o = s.orchard[def.index];
+        el.className = 'wlabel wl-plot';
+        if (!o?.tree) el.innerHTML = '🌱<small>trồng cây</small>';
+        else if (!isGrown(o)) el.innerHTML = `${TREES[o.tree].icon}<small>còn ${TREES[o.tree].growDays - o.age} ngày</small>`;
+        else if (o.fruit > 0) {
+          el.innerHTML = `${TREES[o.tree].icon} ×${o.fruit}`;
+          el.classList.add('ripe');
+        } else el.classList.add('none');
+      } else if (def.type === 'pen') {
+        const a = s.animals[def.kind];
+        const an = ANIMALS[def.kind];
+        el.className = 'wlabel wl-plot';
+        if (def.locked) el.innerHTML = `🔒 ${an.icon}<small>mua ở 🔨 Nâng cấp</small>`;
+        else if (a.ready > 0) {
+          el.innerHTML = `${ITEMS[an.product].icon} ×${a.ready}`;
+          el.classList.add('ripe');
+        } else if (!a.fed) {
+          el.innerHTML = `🍽️ ${an.icon}<small>đói bụng</small>`;
+          el.classList.add('dry');
+        } else el.innerHTML = `${an.icon} 😋`;
       } else if (def.type === 'pond') {
         const n = fishLeft(s);
         el.innerHTML = n ? `🎣 Ao cá<small>còn ${n} lượt câu</small>` : '🎣 Ao cá<small>hết cá hôm nay</small>';
@@ -321,6 +434,46 @@ async function start() {
       tutorial.notify('market');
     } else if (def.type === 'house') {
       hud.toast('🏠 Nhà của bạn. Chiều về mở quán, tối về nghỉ ngơi.');
+    } else if (def.type === 'shop') {
+      wdialogs.openShop(hud, game);
+    } else if (def.type === 'npc') {
+      const v = VILLAGERS.find((x) => x.id === def.id);
+      const n = S().counters.talk[v.id] || 0;
+      game.talkTo(v.id);
+      player.faceTo(def.anchor);
+      wdialogs.openTalk(hud, v, v.lines[n % v.lines.length], { onShop: () => wdialogs.openShop(hud, game) });
+    } else if (def.type === 'tree') {
+      player.faceTo(def.anchor);
+      wdialogs.openTree(hud, game, def.index, {
+        onPlant: (id) => {
+          const r = game.plantTree(def.index, id);
+          if (!r.ok) return hud.toast(r.reason);
+          player.work();
+          sound('plant');
+          hud.floatText(toScreen(def.anchor), `🌱 ${TREES[id].name}`);
+        },
+        onHarvest: () => {
+          const r = game.harvestTree(def.index);
+          if (!r.ok) return hud.toast(r.reason);
+          player.work();
+          sound('harvest');
+          hud.floatText(toScreen(def.anchor), `+${r.amount} ${ITEMS[r.item].icon}`);
+        },
+      });
+    } else if (def.type === 'pen') {
+      const k = def.kind;
+      player.faceTo(def.anchor);
+      const after = (r, ok) => {
+        if (!r.ok) return hud.toast(r.reason);
+        player.work();
+        sound('harvest');
+        hud.floatText(toScreen(def.anchor), ok(r));
+      };
+      wdialogs.openPen(hud, game, k, {
+        onFeed: () => after(game.feedAnimal(k), (r) => `${ITEMS[r.food].icon} Ngon quá!`),
+        onPet: () => after(game.petAnimal(k), (r) => `💕 ${r.love}/5`),
+        onCollect: () => after(game.collectAnimal(k), (r) => `+${r.amount} ${ITEMS[r.item].icon}`),
+      });
     } else if (def.type === 'pond') {
       player.faceTo(def.anchor);
       dialogs.openFishing(hud, game, {
@@ -346,7 +499,7 @@ async function start() {
   };
   const input = new PointerInput(renderer.domElement, rig, {
     canPaint: (x, y) => {
-      if (paused || hud.tool === 'hand') return false;
+      if (paused || decorMode || hud.tool === 'hand') return false;
       const def = pickAt(x, y);
       return def?.type === 'plot' && !def.locked;
     },
@@ -356,7 +509,16 @@ async function start() {
     },
     onTap: (x, y) => {
       if (paused) return;
+      if (decorMode) return decorTap(x, y);
       const def = pickAt(x, y);
+      if (def?.type === 'plot' && def.lot2 && def.locked) {
+        hud.toast('🗺️ Lô ruộng 2: mua ở 🔨 Nâng cấp › Nông trại (cần quán cấp 3 và mở hết lô 1).');
+        return dialogs.openUpgrades(hud, game, 'trai');
+      }
+      if (def?.type === 'pen' && def.locked) {
+        hud.toast(`Chưa có ${def.name.toLowerCase()}. Mua ở 🔨 Nâng cấp › Nông trại.`);
+        return dialogs.openUpgrades(hud, game, 'trai');
+      }
       if (def?.type === 'plot') {
         if (def.locked) return askUnlock(def.index);
         if (hud.tool === 'hand') return hud.toast(describePlot(def.index));
@@ -400,6 +562,9 @@ async function start() {
   game.on('rest', (e) => restCtl.onEvent(e));
   game.on('upgrade', () => {
     restView.syncTables(S());
+    world.syncAnimals(S());
+    world.syncCells(S().plots);
+    plates.forEach((p) => p.lot2Plate && (p.el.hidden = !!S().upgrades.lot2));
     world.syncChickens(S().coop.timers.length);
     if (restView.navDirty) {
       restView.navDirty = false;
@@ -409,6 +574,23 @@ async function start() {
     sound('levelup');
   });
   game.on('decor', () => (restView.syncDecor(S()), sound('levelup')));
+  game.on('orchard', () => world.syncOrchard(S().orchard));
+  game.on('animals', () => world.syncAnimals(S()));
+  game.on('custom', () => syncPet());
+  game.on('garden', () => syncGarden());
+  game.on('taskDone', (t) => {
+    sound('ding');
+    hud.toast(`✅ Xong nhiệm vụ: ${t.label}. Mở 📜 để nhận thưởng!`);
+  });
+  game.on('chapterReady', (ch) => {
+    sound('heart');
+    if (hud.modal.hidden) wdialogs.openChapterReady(hud, game, ch, () => wdialogs.openQuests(hud, game, 'story'));
+    else hud.toast(`✨ Xong mục tiêu chương "${ch.title}". Mở 📜 để đọc tiếp!`);
+  });
+  game.on('story', (r) => {
+    sound('levelup');
+    if (r.next) setTimeout(() => hud.toast(`📖 Chương mới: ${r.next.title}`), 2700);
+  });
   game.on('prep', () => {
     sound('ding');
     if (!tutorial.active && !S().tutorialQuan.done) tutorialQuan.start();
@@ -441,8 +623,11 @@ async function start() {
     storage.save(S());
     setTimeout(showSummary, 600);
   });
-  game.on('newday', ({ weather, notes }) => {
+  game.on('newday', ({ weather, notes, event }) => {
     harvestAtDayStart = S().stats.harvested;
+    world.setEvent(event?.id);
+    world.syncOrchard(S().orchard);
+    world.syncAnimals(S());
     setMood('day');
     world.setSeason(seasonIndex(S().day));
     world.setRain(weather.rain);
@@ -469,6 +654,15 @@ async function start() {
   addEventListener('resize', () => {
     renderer.setSize(innerWidth, innerHeight);
     rig.resize(innerWidth, innerHeight);
+  });
+  // Chạm vào thú cưng thì thả tim (không chặn việc khác)
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    if (!pet || paused) return;
+    const hit = input.setRay(e.clientX, e.clientY).intersectObject(pet.mesh, true)[0];
+    if (hit) {
+      sound('heart');
+      hud.floatText(toScreen(pet.mesh.position.clone().setY(1)), '💕');
+    }
   });
 
   // ---- Hướng dẫn chơi ----
@@ -498,6 +692,89 @@ async function start() {
   else if (tutorialQuan.active && S().minutes >= TIME.prep && !game.isEvening) tutorialQuan.start();
 
   if (game.phase === 'service') setMood('night');
+  applyGraphics();
+
+  // ---- Chế độ đặt trang trí vườn (GĐ9) ----
+  let decorMode = false;
+  let decorPick = null; // id món đang chọn để đặt
+  let decorSel = -1; // chỉ số món đã đặt đang chọn để di chuyển
+  const decoBar = document.createElement('div');
+  decoBar.className = 'deco-bar';
+  decoBar.hidden = true;
+  const decoHint = document.createElement('div');
+  decoHint.className = 'deco-hint';
+  decoHint.hidden = true;
+  hud.root.append(decoBar, decoHint);
+  const drawDecoBar = () => {
+    decoBar.innerHTML = '';
+    const s = S();
+    const add = (html, cls, fn) => {
+      const b = document.createElement('button');
+      b.className = cls;
+      b.innerHTML = html;
+      b.onclick = fn;
+      decoBar.append(b);
+    };
+    if (decorSel >= 0) {
+      const p = s.custom.garden.placed[decorSel];
+      const d = GARDEN_DECOR.find((x) => x.id === p.id);
+      decoHint.textContent = `${d.icon} ${d.name}: chạm chỗ mới để dời, hoặc xoay/cất`;
+      add('<span>↻</span><small>Xoay</small>', 'seed', () => game.rotateGarden(decorSel));
+      add('<span>📦</span><small>Cất vào kho</small>', 'seed', () => {
+        game.storeGarden(decorSel);
+        decorSel = -1;
+        drawDecoBar();
+      });
+      add('<span>✔️</span><small>Xong</small>', 'seed active', () => ((decorSel = -1), drawDecoBar()));
+      return;
+    }
+    const owned = GARDEN_DECOR.filter((d) => (s.custom.garden.owned[d.id] || 0) > 0);
+    decoHint.textContent = owned.length ? 'Chọn món rồi chạm lên đảo để đặt · chạm món đã đặt để dời' : 'Chưa có đồ trang trí vườn. Mua ở 🏪 tạp hoá ông Bảy (làng phía đông).';
+    owned.forEach((d) => add(`<span>${d.icon}</span><small>${d.name}</small><b>${gardenFree(s, d.id)}</b>`, 'seed' + (decorPick === d.id ? ' active' : ''), () => ((decorPick = d.id), drawDecoBar())));
+    add('<span>✔️</span><small>Xong</small>', 'seed', () => toggleDecorMode());
+  };
+  const toggleDecorMode = () => {
+    decorMode = !decorMode;
+    decorPick = null;
+    decorSel = -1;
+    clearJobs();
+    document.body.classList.toggle('decor-mode', decorMode);
+    decoBar.hidden = decoHint.hidden = !decorMode;
+    if (decorMode) drawDecoBar();
+  };
+  game.on('garden', () => decorMode && drawDecoBar());
+  const decorTap = (x, y) => {
+    const hit = input.setRay(x, y).intersectObjects(gardenMeshes, true)[0];
+    if (hit) {
+      let o = hit.object;
+      while (o && o.userData.gardenIndex === undefined) o = o.parent;
+      decorSel = o.userData.gardenIndex;
+      decorPick = null;
+      return drawDecoBar();
+    }
+    const g = input.groundPoint(x, y);
+    if (!g) return;
+    const inside = Math.abs(g.x) < ISLAND.w / 2 - 1 && Math.abs(g.z) < ISLAND.d / 2 - 1;
+    if (!inside || !player.nav.free(...player.nav.toCell(g.x, g.z))) return hud.toast('Chỗ này không đặt được, chọn khoảng trống trên cỏ nhé.');
+    if (decorSel >= 0) {
+      game.moveGarden(decorSel, g.x, g.z);
+      return;
+    }
+    if (!decorPick) return hud.toast('Chọn một món trang trí ở thanh dưới trước đã.');
+    const r = game.placeGarden(decorPick, g.x, g.z);
+    if (!r.ok) return hud.toast(r.reason);
+    sound('plant');
+    if (gardenFree(S(), decorPick) <= 0) decorPick = null;
+    drawDecoBar();
+  };
+
+  // ---- Online (GĐ10) ----
+  const online = initOnline({ hud, game, storage, onLoaded: () => location.reload() });
+
+  // ---- PWA: cài lên màn hình chính, chơi offline (bỏ qua nếu môi trường không hỗ trợ) ----
+  if ('serviceWorker' in navigator && location.protocol !== 'file:' && !location.hostname.endsWith('claude.ai') && !location.hostname.endsWith('claudeusercontent.com')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
   if (game.isEvening) showSummary();
 
   // ---- Vòng lặp ----
@@ -505,9 +782,27 @@ async function start() {
   let lastMinute = -1;
   let lastHud = 0;
   let time = 0;
+  let fpsT = 0, fpsN = 0, frame = 0, slowSum = 0;
   renderer.setAnimationLoop(() => {
-    const dt = Math.min(clock.getDelta(), 0.1);
+    const raw = clock.getDelta();
+    const dt = Math.min(raw, 0.1);
     time += dt;
+    frame++;
+    // Đo FPS; chế độ tự động: 3 giây đầu mà dưới 38 FPS thì chuyển đồ hoạ nhẹ
+    fpsT += raw;
+    fpsN++;
+    if (fpsT >= 0.5) {
+      const fps = fpsN / fpsT;
+      if (S().settings.fps) hud.fpsEl.textContent = `${Math.round(fps)} FPS`;
+      if (frame > 60 && frame < 400) slowSum += fps < 38 ? 1 : -1;
+      if (slowSum >= 4 && !autoLow && S().settings.graphics === 'auto') {
+        autoLow = true;
+        applyGraphics();
+        hud.toast('🔋 Máy hơi chậm, đã chuyển sang đồ hoạ nhẹ cho mượt (đổi trong ⚙️).');
+      }
+      fpsT = 0;
+      fpsN = 0;
+    }
     if (!paused) {
       game.tick(dt);
       const minute = Math.floor(S().minutes);
@@ -526,6 +821,7 @@ async function start() {
     restView.update(S(), dt, time);
     restView.syncCarry(S(), player.pos);
     player.update(dt);
+    updatePet(dt, time);
     updateCamTarget();
     rig.update(dt);
 
@@ -541,7 +837,7 @@ async function start() {
     renderer.render(world.scene, rig.cam);
   });
   window.__game = game; // tiện kiểm thử
-  window.__debug = { world, rig, player, toScreen, hud, FARM, restView, restCtl, tutorialQuan };
+  window.__debug = { world, rig, player, toScreen, hud, FARM, restView, restCtl, tutorialQuan, toggleDecorMode, online };
 }
 
 start();

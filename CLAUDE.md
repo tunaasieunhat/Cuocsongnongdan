@@ -20,6 +20,17 @@ Trả lời chủ dự án bằng **tiếng Việt, ngắn gọn**. Hỏi trư�
    Chờ quá lâu thì khách bỏ về; nhầm món thì giảm hài lòng, không tip.
 4. **Hết khách (hoặc 22:30)** — bảng tổng kết (doanh thu, số khách, hài lòng, món bán chạy) → "Ngày mới".
 
+Mở rộng (GĐ5–10):
+- **GĐ5** đồ hoạ Tự động/Nhẹ/Đẹp (tự hạ khi FPS < 38), hiện FPS, PWA (`manifest.json`, `sw.js`, `icons/`).
+- **GĐ6** đồ uống (quầy nước, khách gọi kèm → tip +25%), đơn đặt trước, sửa quán lá→gỗ→gạch, đầu bếp tự nấu,
+  2 bàn ngoài sân (tối đa 8 bàn).
+- **GĐ7** lô ruộng 2 (9 ô), cây mới đậu/bí/ớt/mía, vườn xoài/chuối, vịt, heo (→ thịt), bò (→ sữa) cần cho ăn.
+- **GĐ8** đảo rộng 44: khu chuồng trại phía tây, làng ven sông phía đông (tạp hoá ông Bảy, cô Ba, thằng Tí);
+  cốt truyện 10 chương (`js/config/story.js`), 3 nhiệm vụ/ngày, Tết & Trung thu (món lễ, giá cao), chợ phiên.
+- **GĐ9** đặt tên, trang phục (áo, mũ, tóc), chó/mèo theo chân, đặt đồ trang trí vườn tự do (nút 🪴).
+- **GĐ10** online qua Supabase REST (`js/online/`, `supabase/schema.sql`, hướng dẫn `docs/ONLINE.md`).
+  Chưa cấu hình (`js/config/online.js` trống) thì game chạy offline như cũ.
+
 Tiến trình: danh tiếng → cấp quán (mở món, nâng cấp, khách VIP từ cấp 3); 📖 Sổ công thức (8 món);
 🔨 Nâng cấp (thêm bàn, bếp nhanh, bếp 2, thuê người phục vụ, bình tưới lớn, thêm gà, người làm vườn)
 và 🎨 Trang trí (6 món đồ, cộng % hài lòng/tip); 4 khách quen có món ưa thích và chuyện riêng;
@@ -57,7 +68,16 @@ js/render/            HIỂN THỊ 3D
 js/controllers/       nối logic + hiển thị + UI cho phần quán (chạm bàn/bếp/quầy, người phục vụ)
 js/ui/                hud.js (khung giao diện), dialogs.js (mọi cửa sổ), tutorial.js
 js/save/storage.js    LocalStorageAdapter
+js/online/            supabase.js (REST client), onlineUI.js (đăng nhập, bạn bè, xếp hạng)
 js/main.js            khởi động, nối mọi thứ, vòng lặp
+js/config/story.js    cốt truyện, nhiệm vụ ngày, sự kiện lễ, dân làng
+js/config/online.js   URL + khoá anon Supabase (để trống = offline)
+js/core/ animals.js orchard.js quests.js custom.js   (GĐ7–9)
+js/ui/dialogsWorld.js cửa sổ GĐ6–9 (quầy nước, tạp hoá, chuồng, vườn, nhiệm vụ, tuỳ biến)
+tests/logic.test.mjs  kiểm thử logic (node --test tests/*.test.mjs)
+.github/workflows/pages.yml  kiểm thử + đăng GitHub Pages khi đẩy lên main
+sw.js manifest.json icons/   PWA
+supabase/schema.sql   bảng + Row Level Security cho online
 ```
 
 Quy ước:
@@ -70,19 +90,20 @@ Quy ước:
 ## Chạy & kiểm thử
 
 - Chạy: `npx serve .` hoặc `python3 -m http.server`, mở trên trình duyệt.
-- Logic chạy được bằng Node: `node --input-type=module -e "import {Game} from './js/core/game.js'; ..."`.
+- Logic chạy được bằng Node: `node --test tests/*.test.mjs` (chạy cả trên GitHub Actions).
 - Kiểm thử giao diện: Playwright (Chromium có sẵn) phục vụ file qua `page.route` (môi trường cloud
   không cho mở cổng máy chủ). `window.__game` và `window.__debug` có sẵn để điều khiển khi test.
 - Kích thước kiểm thử chuẩn: 844×390 (điện thoại nằm ngang).
 - Đăng bản thử: publish `play.html` + toàn bộ `css/`, `js/`, `vendor/` qua công cụ Artifact
   (link riêng tư: https://claude.ai/artifact/1Eaovxjyn5nKKUgFpqVzLT).
+- Playwright: tạo context với `serviceWorkers: 'block'` (nếu không, service worker chặn `page.route` sau khi reload).
+- Chromium headless chỉ ~12 FPS (vẽ bằng CPU) nên game tự chuyển "đồ hoạ nhẹ"; ghi log ra file thay vì pipe.
 
 ## Việc tiếp theo
 
-- [ ] Lưu online (Supabase giống Tiệm Hoa Giấc Mơ) — **chờ chủ dự án đồng ý** vì cần tài khoản/dịch vụ.
-- [ ] Thử thật trên Android, đo FPS; nếu chậm: tắt bóng đổ mềm hoặc giảm pixel ratio.
-- [ ] Thêm vật nuôi khác (vịt, heo) và cho ăn/vuốt ve.
-- [ ] Đặt đồ trang trí tự do (hiện đặt ở vị trí cố định).
-- [ ] Mở rộng lô ruộng thứ 2; thêm cây theo mùa (đậu, bí, ớt) và món tương ứng.
-- [ ] Sự kiện theo mùa (Tết, Trung thu) với món đặc biệt.
-- [ ] Nhạc nền phong phú hơn, nút tắt nhanh trên màn hình.
+- [ ] Chủ dự án tạo project Supabase và điền `js/config/online.js` (xem `docs/ONLINE.md`), rồi thử online thật.
+- [ ] Bật GitHub Pages (Settings > Pages > Source: GitHub Actions) sau khi gộp vào `main`.
+- [ ] Thử thật trên Android, cân bằng lại giá/thời gian theo cảm nhận chơi.
+- [ ] Chương 2 cốt truyện; thêm dân làng và nhiệm vụ.
+- [ ] Thăm quán bạn dạng 3D (hiện là thẻ thông tin); chơi chung (co-op).
+- [ ] Đưa lên Google Play (cần tài khoản nhà phát triển 25 USD — hỏi trước).

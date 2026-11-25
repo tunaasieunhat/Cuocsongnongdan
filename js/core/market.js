@@ -1,9 +1,9 @@
 // Chợ: mua hạt giống / nguyên liệu, bán nông sản dư.
 import { CROPS, ITEMS } from '../config/gameData.js';
 
-export function buySeed(state, cropId, qty = 1) {
-  const crop = CROPS[cropId];
-  const cost = crop.seedPrice * qty;
+// price: giá mỗi hạt (chợ phiên có thể rẻ hơn giá gốc)
+export function buySeed(state, cropId, qty = 1, price = CROPS[cropId].seedPrice) {
+  const cost = price * qty;
   if (state.money < cost) return { ok: false, reason: 'Không đủ tiền.' };
   state.money -= cost;
   state.seeds[cropId] = (state.seeds[cropId] || 0) + qty;

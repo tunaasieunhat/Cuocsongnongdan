@@ -1,14 +1,15 @@
 // Hiển thị quán: bàn ghế, bếp, quầy món, khách đi vào/ngồi/ăn/ra về, bàn bẩn, đồ trang trí.
 // Đọc state.restaurant mỗi khung hình; không chứa luật chơi.
 import * as THREE from '../../vendor/three.module.min.js';
-import { RESTAURANT, REGULARS } from '../config/gameData.js';
+import { RESTAURANT, REGULARS, DRINKS } from '../config/gameData.js';
 import { tableCount, stoveCount } from '../core/restaurant.js';
 
 // Gốc toạ độ quán trong thế giới (khớp World)
 export const REST_ORIGIN = new THREE.Vector3(7.5, 0, -1.5);
 const FLOOR_Y = 0.25;
 // Vị trí bàn (tương đối với quán), tối đa 6
-const TABLE_SPOTS = [[-1.5, -0.3], [0.6, -0.3], [2.5, -0.3], [-1.5, 1.45], [0.6, 1.45], [2.5, 1.45]];
+// 6 bàn trong quán + 2 bàn ngoài sân (bậc nâng cấp 4-5)
+const TABLE_SPOTS = [[-1.5, -0.3], [0.6, -0.3], [2.5, -0.3], [-1.5, 1.45], [0.6, 1.45], [2.5, 1.45], [-2.4, 3.4], [2.6, 3.4]];
 const ENTRANCE = new THREE.Vector3(REST_ORIGIN.x, 0, REST_ORIGIN.z + 4.2);
 const STREET_IN = new THREE.Vector3(REST_ORIGIN.x + 9, 0, 8.2);
 const STREET_OUT = new THREE.Vector3(REST_ORIGIN.x - 2, 0, 9.0);
@@ -17,7 +18,12 @@ const STREET_OUT = new THREE.Vector3(REST_ORIGIN.x - 2, 0, 9.0);
 const DISH_COLOR = {
   rauxao: 0x6fcf5a, trungchien: 0xffc94a, canhchua: 0xf2a05a, comphan: 0xfff6e0,
   canhcai: 0x9ed67a, comchien: 0xf5d27a, cakho: 0xa0603a, banhxeo: 0xf7c35c,
+  canhbi: 0xf2a05a, chuoinuong: 0xf5d85a, dausotca: 0xd9603a, canuong: 0xc9873a, banhflan: 0xffd27a,
+  thitkho: 0x9a4a2a, banhchung: 0x5f9e45, banhtrungthu: 0xd9a05a,
 };
+const DRINK_COLOR = { trada: 0xc98a3a, chedau: 0xb5d68a, nuocmia: 0xe6e08a, caphe: 0x8a5a3a, sinhto: 0xffb347 };
+// Màu tường theo bậc sửa quán: lá -> gỗ -> gạch
+const TIER_WALL = [null, 0xe6bb93, 0xe39a7f];
 
 const rel = (x, z, y = 0) => new THREE.Vector3(REST_ORIGIN.x + x, y, REST_ORIGIN.z + z);
 
@@ -78,6 +84,19 @@ export class RestaurantView {
       })
     );
     this.stoves[1].hidden = true;
+    // Quầy nước (GĐ6)
+    const bar = this.M.drinkStation();
+    bar.position.copy(rel(2.45, -1.95, FLOOR_Y));
+    this.scene.add(bar);
+    this.barPos = bar.position.clone();
+    this.world.obstacles.push({ minX: this.barPos.x - 0.6, maxX: this.barPos.x + 0.6, minZ: this.barPos.z - 0.4, maxZ: this.barPos.z + 0.4 });
+    this.drinkBar = this.world._addInteractable({
+      type: 'drinks', name: 'Quầy nước',
+      hitbox: this._hit(1.3, 1.6, 1.0, rel(2.45, -1.95, 0.9)),
+      stand: rel(2.0, -1.0),
+      anchor: rel(2.45, -1.95, 1.8),
+    });
+    this.cups = [];
     // Đồ trên tay nông dân
     this.carryMesh = new THREE.Group();
     this.scene.add(this.carryMesh);
@@ -137,12 +156,46 @@ export class RestaurantView {
     });
   }
 
+  _cup(drink) {
+    const g = new THREE.Group();
+    const glass = this.M.mesh(new THREE.CylinderGeometry(0.09, 0.07, 0.2, 7), DRINK_COLOR[drink] || 0xffffff);
+    glass.position.y = 0.1;
+    const ice = this.M.box(0.1, 0.03, 0.1, 0xffffff, 0, 0.21, 0);
+    g.add(glass, ice);
+    return g;
+  }
+
+  syncDrinks(state) {
+    const key = state.restaurant.drinkCounter.join(',');
+    if (key === this._drinkKey) return;
+    this._drinkKey = key;
+    this.cups.forEach((c) => this.scene.remove(c));
+    this.cups = state.restaurant.drinkCounter.map((d, i) => {
+      const c = this._cup(d);
+      c.position.copy(this.barPos).add(new THREE.Vector3(0.1 + (i % 4) * 0.2, 0.92, 0.2));
+      this.scene.add(c);
+      return c;
+    });
+  }
+
+  // Đổi màu tường theo bậc sửa quán
+  applyTier(level) {
+    if (this._tier === level) return;
+    this._tier = level;
+    const P = this.world.P;
+    this.world.restaurant.traverse((m) => {
+      if (!m.isMesh) return;
+      if (m.userData.origColor === undefined) m.userData.origColor = m.material.color.getHex();
+      if (m.userData.origColor === new THREE.Color(P.wall).getHex()) m.material = this.M.mat(TIER_WALL[level] || P.wall);
+    });
+  }
+
   syncCarry(state, playerPos) {
     const d = state.restaurant.carry;
     if (d !== this._carryKey) {
       this._carryKey = d;
       this.carryMesh.clear();
-      if (d) this.carryMesh.add(this._foodPlate(d));
+      if (d) this.carryMesh.add(DRINKS[d] ? this._cup(d) : this._foodPlate(d));
     }
     if (d) this.carryMesh.position.set(playerPos.x, playerPos.y + 1.05, playerPos.z).add(this._carryOffset || new THREE.Vector3());
   }
@@ -222,8 +275,8 @@ export class RestaurantView {
       const g = new THREE.Group();
       g.add(M.box(0.08, 1.1, 0.08, P.woodDark, -0.35, 0.55, 0), M.box(0.08, 1.1, 0.08, P.woodDark, 0.35, 0.55, 0));
       g.add(M.box(0.9, 0.7, 0.06, 0x4a5a4a, 0, 1.0, 0.02));
-      g.position.copy(rel(-2.2, 3.4));
-      g.rotation.y = 0.4;
+      g.position.copy(rel(-3.9, 2.4));
+      g.rotation.y = 0.6;
       return g;
     });
   }
@@ -274,6 +327,8 @@ export class RestaurantView {
     this.syncTables(state);
     this.syncCounter(state);
     this.syncDecor(state);
+    this.syncDrinks(state);
+    this.applyTier(state.upgrades.renovate || 0);
     // Bàn bẩn
     this.tables.forEach((t, i) => (t.dirty.visible = !!r.dirty[i]));
     // Khách
