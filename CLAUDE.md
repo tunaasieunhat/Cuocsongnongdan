@@ -25,7 +25,8 @@ Mở rộng (GĐ5–10):
 - **GĐ6** đồ uống (quầy nước, khách gọi kèm → tip +25%), đơn đặt trước, sửa quán lá→gỗ→gạch, đầu bếp tự nấu,
   2 bàn ngoài sân (tối đa 8 bàn).
 - **GĐ7** lô ruộng 2 (9 ô), cây mới đậu/bí/ớt/mía, vườn xoài/chuối, vịt, heo (→ thịt), bò (→ sữa) cần cho ăn.
-- **GĐ8** đảo rộng 44: khu chuồng trại phía tây, làng ven sông phía đông (tạp hoá ông Bảy, cô Ba, thằng Tí);
+- **Map:** khu chơi 44×22 nằm giữa vành rừng (`FOREST` trong `world.js`, cây vẽ bằng InstancedMesh; mép nam/đông chỉ có bụi thấp để không che cảnh).
+- **GĐ8** khu chơi rộng 44: khu chuồng trại phía tây, làng ven sông phía đông (tạp hoá ông Bảy, cô Ba, thằng Tí);
   cốt truyện 10 chương (`js/config/story.js`), 3 nhiệm vụ/ngày, Tết & Trung thu (món lễ, giá cao), chợ phiên.
 - **GĐ9** đặt tên, trang phục (áo, mũ, tóc), chó/mèo theo chân, đặt đồ trang trí vườn tự do (nút 🪴).
 - **GĐ10** online qua Supabase REST (`js/online/`, `supabase/schema.sql`, hướng dẫn `docs/ONLINE.md`).

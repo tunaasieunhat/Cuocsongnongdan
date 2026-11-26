@@ -6,6 +6,8 @@ import { VILLAGERS } from '../config/story.js';
 
 // Đảo rộng 44: tây (x<-15) là chuồng heo/bò, giữa là trại + quán, đông (x>15) là làng ven sông
 export const ISLAND = { w: 44, d: 22 };
+// Vành rừng bao quanh khu chơi (đơn vị mỗi phía): nhìn như trang trại nằm giữa rừng thay vì đảo bay
+export const FOREST = 34;
 
 // Lô ruộng 3x3. Thứ tự ô: hàng trước (gần camera) trước, để ô mở sẵn nằm phía trước.
 export const LOT = { x: -8.6, z: -0.2, pitch: 1.72, cell: 1.6 };
@@ -47,6 +49,81 @@ export class World {
     this._buildOrchard();
     this._buildAnimals();
     this._buildVillage();
+    this._buildForest();
+  }
+
+  // Rừng bao quanh: vài nghìn cây vẽ bằng InstancedMesh (mỗi loại khối 1 lần vẽ) để điện thoại vẫn mượt.
+  // Cây dày sát mép khu chơi, thưa dần ra xa; chừa lối cho đường chính và con sông chạy vào rừng.
+  _buildForest() {
+    const P = this.P;
+    const M = this.M;
+    let seed = 12345;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const halfW = ISLAND.w / 2, halfD = ISLAND.d / 2;
+    const outW = halfW + FOREST, outD = halfD + FOREST;
+    const spots = [];
+    for (let i = 0; i < 6000 && spots.length < 1500; i++) {
+      const x = (rnd() * 2 - 1) * outW;
+      const z = (rnd() * 2 - 1) * outD;
+      // khoảng cách ra ngoài mép khu chơi
+      const dx = Math.max(0, Math.abs(x) - halfW), dz = Math.max(0, Math.abs(z) - halfD);
+      const out = Math.max(dx, dz);
+      if (out < 0.4) continue;
+      // Mép nam và đông nằm giữa camera và khu chơi: chừa dải cỏ để cây không che cảnh
+      const front = Math.max(z > halfD ? dz : 0, x > halfW ? dx : 0);
+      if (front > 0 && front < 4.5) continue;
+      if (Math.abs(z - 8.2) < 1.6) continue; // đường
+      if (x > 19.6 && x < 22.4) continue; // sông
+      // càng gần mép càng dày
+      if (rnd() > 0.55 + 0.45 * Math.exp(-out / 6)) continue;
+      spots.push([x, z, out]);
+    }
+    const kinds = { pine: [], round: [], cherry: [] };
+    spots.forEach(([x, z, out]) => {
+      const r = rnd();
+      const k = r < 0.5 ? 'pine' : r < 0.9 ? 'round' : 'cherry';
+      kinds[k].push({ x, z, s: 0.9 + rnd() * 0.8 + Math.min(out, 10) * 0.03, rot: rnd() * Math.PI * 2, tint: rnd() });
+    });
+    const dummy = new THREE.Object3D();
+    const col = new THREE.Color();
+    // Tạo 1 InstancedMesh cho một phần cây (thân, tán...) dùng chung vị trí của các cây cùng loại
+    const part = (geo, color, list, y, sy = 1, tintAmt = 0.12) => {
+      const m = new THREE.InstancedMesh(geo, M.mat(0xffffff), list.length);
+      list.forEach((t, i) => {
+        dummy.position.set(t.x, y * t.s, t.z);
+        dummy.rotation.set(0, t.rot, 0);
+        dummy.scale.set(t.s, t.s * sy, t.s);
+        dummy.updateMatrix();
+        m.setMatrixAt(i, dummy.matrix);
+        col.set(color).offsetHSL(0, 0, (t.tint - 0.5) * tintAmt);
+        m.setColorAt(i, col);
+      });
+      m.castShadow = false;
+      m.receiveShadow = false;
+      m.frustumCulled = false;
+      this.scene.add(m);
+      return m;
+    };
+    const trunk = new THREE.CylinderGeometry(0.14, 0.2, 1, 5);
+    part(trunk, P.trunk, kinds.pine, 0.3, 0.6, 0);
+    part(new THREE.ConeGeometry(0.9, 1.3, 6), P.leaf2, kinds.pine, 1.05);
+    part(new THREE.ConeGeometry(0.55, 1.1, 6), P.leaf2, kinds.pine, 1.85);
+    part(trunk, P.trunk, kinds.round, 0.55, 1.1, 0);
+    part(new THREE.IcosahedronGeometry(0.95, 0), P.leaf, kinds.round, 1.65);
+    part(trunk, P.trunk, kinds.cherry, 0.6, 1.2, 0);
+    part(new THREE.IcosahedronGeometry(0.9, 0), (P.blossom || [P.roof])[0], kinds.cherry, 1.75);
+    // Bụi cây thấp dọc mép rừng cho chỗ giáp ranh mềm mại (mép nam/đông: bụi phủ cả dải cỏ trống)
+    const bushes = [];
+    for (let i = 0; i < 420; i++) {
+      const side = Math.floor(rnd() * 4); // 0 bắc, 1 nam, 2 tây, 3 đông
+      const t = rnd() * 2 - 1;
+      const depth = side === 1 || side === 3 ? 0.3 + rnd() * 4.2 : 0.3 + rnd() * 0.8;
+      const x = side < 2 ? t * (halfW + 4.5) : (side === 2 ? -1 : 1) * (halfW + depth);
+      const z = side < 2 ? (side === 0 ? -1 : 1) * (halfD + depth) : t * (halfD + 4.5);
+      if (Math.abs(z - 8.2) < 1.6 || (x > 19.6 && x < 22.4)) continue;
+      bushes.push({ x, z, s: 0.6 + rnd() * 0.6, rot: rnd() * 6, tint: rnd() });
+    }
+    part(new THREE.IcosahedronGeometry(0.5, 0), P.leaf, bushes, 0.3, 0.8);
   }
 
   _buildLights() {
@@ -86,13 +163,13 @@ export class World {
   _buildTerrain() {
     const M = this.M;
     const s = this.scene;
-    const island = M.island(ISLAND.w, ISLAND.d);
-    s.add(island);
-    // Mặt cỏ có vật liệu riêng để đổi màu theo mùa
-    this.islandTop = island.children[0];
+    // Nền cỏ rộng phủ cả khu chơi lẫn vành rừng (vật liệu riêng để đổi màu theo mùa)
+    this.islandTop = M.box(ISLAND.w + FOREST * 2, 0.4, ISLAND.d + FOREST * 2, this.P.grass, 0, -0.2, 0);
+    this.islandTop.castShadow = false;
     this.islandTop.material = this.islandTop.material.clone();
-    // Đường chính dọc mép trước đảo
-    s.add(M.path(ISLAND.w, 1.8, 0, 8.2));
+    s.add(this.islandTop);
+    // Đường chính chạy xuyên qua rừng hai bên
+    s.add(M.path(ISLAND.w + FOREST * 2, 1.8, 0, 8.2));
     // Sân hồng quanh quán
     const plaza = M.mesh(new THREE.CylinderGeometry(4.6, 4.6, 0.06, 18), this.P.path);
     plaza.position.set(7.5, 0.03, -1.2);
@@ -363,7 +440,7 @@ export class World {
     const M = this.M;
     const s = this.scene;
     // Sông dọc mép đông
-    const river = M.box(2.2, 0.1, ISLAND.d - 0.4, this.P.water, 21.0, 0.03, 0);
+    const river = M.box(2.2, 0.1, ISLAND.d + FOREST * 2, this.P.water, 21.0, 0.03, 0);
     river.castShadow = false;
     s.add(river);
     this.obstacles.push({ minX: 19.9, maxX: 22, minZ: -11, maxZ: 11 });
