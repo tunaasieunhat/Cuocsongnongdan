@@ -772,7 +772,7 @@ async function start() {
   const online = initOnline({ hud, game, storage, onLoaded: () => location.reload() });
 
   // ---- PWA: cài lên màn hình chính, chơi offline (bỏ qua nếu môi trường không hỗ trợ) ----
-  if ('serviceWorker' in navigator && location.protocol !== 'file:' && !location.hostname.endsWith('claude.ai') && !location.hostname.endsWith('claudeusercontent.com')) {
+  if ('serviceWorker' in navigator && !window.Capacitor?.isNativePlatform?.() && location.protocol !== 'file:' && !location.hostname.endsWith('claude.ai') && !location.hostname.endsWith('claudeusercontent.com')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   if (game.isEvening) showSummary();

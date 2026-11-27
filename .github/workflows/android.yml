@@ -1,0 +1,72 @@
+# Build file APK Android bằng Capacitor và đăng lên trang Releases để tải về cài.
+# Chạy khi đẩy code lên main (đăng bản phát hành mới), hoặc bấm "Run workflow" trong tab Actions.
+# Đẩy lên nhánh khác chỉ build thử (APK nằm trong mục Artifacts của lần chạy).
+name: Build APK Android
+
+on:
+  push:
+    branches: [main, 'ccr-*']
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Cài gói
+        run: npm ci
+      - name: Kiểm thử logic
+        run: npm test
+      - name: Gom file game + đồng bộ vào dự án Android
+        run: npm run android:sync
+      # Nếu có khoá ký riêng trong Settings > Secrets (ANDROID_KEYSTORE_BASE64...) thì dùng, không thì dùng khoá mặc định trong repo
+      - name: Chuẩn bị khoá ký
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          fi
+      - name: Build APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          mkdir -p ../dist
+          cp app/build/outputs/apk/release/app-release.apk "../dist/NongTraiQuanNho-v1.0.${{ github.run_number }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NongTraiQuanNho-apk
+          path: dist/*.apk
+      - name: Đăng bản phát hành (chỉ nhánh main)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Nông Trại & Quán Nhỏ v1.0.${{ github.run_number }}
+          make_latest: true
+          files: dist/*.apk
+          body: |
+            📱 **Cách cài trên Android**
+            1. Tải file `.apk` bên dưới (mục Assets).
+            2. Mở file vừa tải. Nếu máy hỏi, cho phép "Cài ứng dụng không rõ nguồn gốc" cho trình duyệt/trình quản lý file.
+            3. Bấm Cài đặt. Bản mới cài đè lên bản cũ, không mất tiến độ.
+
+            🌐 Chơi trên trình duyệt: https://tunaasieunhat.github.io/Cuocsongnongdan/
