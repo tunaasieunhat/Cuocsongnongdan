@@ -15,6 +15,14 @@ Chạy trên trình duyệt điện thoại và máy tính (màn ngang), cài đ
 - 👕 Đặt tên quán, trang phục, chó/mèo đi theo, đặt đồ trang trí vườn tự do
 - ☁️ Online (tuỳ chọn): lưu lên mạng, kết bạn, thăm quán, tưới giúp, tặng quà, xếp hạng — xem `docs/ONLINE.md`
 
+## 📱 Tải app Android (APK)
+
+Vào **https://github.com/tunaasieunhat/Cuocsongnongdan/releases/latest**, tải file `.apk` ở mục Assets,
+mở file để cài (lần đầu Android sẽ hỏi cho phép cài ứng dụng ngoài CH Play). Bản mới cài đè bản cũ, không mất tiến độ.
+
+APK được build tự động bằng **Capacitor** trên GitHub Actions (`.github/workflows/android.yml`) mỗi khi code lên `main`.
+Build trên máy: cần Android Studio/SDK + Java 21, rồi `npm ci && npm run android:apk`.
+
 ## Đưa lên GitHub Pages (miễn phí)
 
 1. Gộp code vào nhánh `main`.

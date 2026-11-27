@@ -78,6 +78,11 @@ js/ui/dialogsWorld.js cửa sổ GĐ6–9 (quầy nước, tạp hoá, chuồng,
 tests/logic.test.mjs  kiểm thử logic (node --test tests/*.test.mjs)
 .github/workflows/pages.yml  kiểm thử + đăng GitHub Pages khi đẩy lên main
 sw.js manifest.json icons/   PWA
+package.json capacitor.config.json  Capacitor 8.6.2 (đóng gói app Android)
+scripts/build-www.mjs  gom file game vào www/ (không commit) để Capacitor đóng gói
+android/              dự án Android: màn ngang, toàn màn hình (MainActivity.java), ký bằng app/nongtrai.keystore
+assets/               ảnh nguồn icon + màn chờ (sinh lại: npx capacitor-assets generate --android)
+.github/workflows/android.yml  build APK, đăng Releases khi lên main (nhánh khác: chỉ build thử)
 supabase/schema.sql   bảng + Row Level Security cho online
 ```
 
@@ -107,4 +112,7 @@ Quy ước:
 - [ ] Thử thật trên Android, cân bằng lại giá/thời gian theo cảm nhận chơi.
 - [ ] Chương 2 cốt truyện; thêm dân làng và nhiệm vụ.
 - [ ] Thăm quán bạn dạng 3D (hiện là thẻ thông tin); chơi chung (co-op).
-- [ ] Đưa lên Google Play (cần tài khoản nhà phát triển 25 USD — hỏi trước).
+- [ ] Đưa lên Google Play (cần tài khoản nhà phát triển 25 USD — hỏi trước). Khi đó nên tạo khoá ký riêng,
+      lưu vào GitHub Secrets (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD)
+      thay cho khoá mặc định `android/app/nongtrai.keystore` đang nằm công khai trong repo.
+- Môi trường cloud của Claude không tải được Android SDK (dl.google.com bị chặn) → APK chỉ build trên GitHub Actions.
